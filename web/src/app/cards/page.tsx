@@ -4,7 +4,7 @@ import FilterSidebar from "@/components/FilterSidebar";
 import Pagination from "@/components/Pagination";
 import SearchBar from "@/components/SearchBar";
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 export default async function CardsPage({
   searchParams,

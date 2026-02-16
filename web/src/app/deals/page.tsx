@@ -1,10 +1,16 @@
 import { getDeals } from "@/lib/queries";
 import DealCard from "@/components/DealCard";
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 export default async function DealsPage() {
-  const deals = await getDeals(50);
+  let deals: Awaited<ReturnType<typeof getDeals>> = [];
+
+  try {
+    deals = await getDeals(50);
+  } catch (e) {
+    console.error("Failed to load deals:", e);
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">

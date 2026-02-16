@@ -5,7 +5,7 @@ import { ColorBadge, LegalBadge } from "@/components/Badge";
 import PriceTable from "@/components/PriceTable";
 import PriceChart from "@/components/PriceChart";
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 export default async function CardDetailPage({
   params,

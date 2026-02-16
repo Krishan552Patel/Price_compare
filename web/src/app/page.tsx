@@ -3,10 +3,17 @@ import { getStats, getDeals } from "@/lib/queries";
 import { formatPrice } from "@/lib/utils";
 import Link from "next/link";
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [stats, deals] = await Promise.all([getStats(), getDeals(6)]);
+  let stats = { totalCards: 0, totalPrintings: 0, totalRetailerProducts: 0, retailers: 0 };
+  let deals: Awaited<ReturnType<typeof getDeals>> = [];
+
+  try {
+    [stats, deals] = await Promise.all([getStats(), getDeals(6)]);
+  } catch (e) {
+    console.error("Failed to load home page data:", e);
+  }
 
   return (
     <div>
