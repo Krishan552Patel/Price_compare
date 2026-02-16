@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { FilterOptions } from "@/lib/types";
 import { useState, useEffect } from "react";
 
@@ -40,13 +40,14 @@ export default function FilterSidebar({
   }, [currentMaxPrice]);
 
   function updateFilter(key: string, value: string | undefined) {
+    // Determine new params
     const params = new URLSearchParams(searchParams.toString());
     if (value) {
       params.set(key, value);
     } else {
       params.delete(key);
     }
-    params.delete("page"); // Reset page on filter change
+    params.delete("page");
     router.push(`/cards?${params.toString()}`);
   }
 
@@ -90,8 +91,9 @@ export default function FilterSidebar({
       )}
 
       {/* Stock Filter */}
-      <label className="flex items-center gap-2 cursor-pointer">
+      <div className="flex items-center gap-2 cursor-pointer">
         <input
+          id="stock-filter"
           type="checkbox"
           checked={!!currentInStock}
           onChange={(e) =>
@@ -99,12 +101,15 @@ export default function FilterSidebar({
           }
           className="w-4 h-4 rounded border-gray-600 text-red-600 focus:ring-red-500 bg-gray-700"
         />
-        <span className="text-sm text-gray-300">In Stock Only</span>
-      </label>
+        <label htmlFor="stock-filter" className="text-sm text-gray-300 cursor-pointer">
+          In Stock Only
+        </label>
+      </div>
 
       {/* Show Printings Filter */}
-      <label className="flex items-center gap-2 cursor-pointer">
+      <div className="flex items-center gap-2 cursor-pointer">
         <input
+          id="printings-filter"
           type="checkbox"
           checked={!!currentShowPrintings}
           onChange={(e) =>
@@ -112,8 +117,10 @@ export default function FilterSidebar({
           }
           className="w-4 h-4 rounded border-gray-600 text-red-600 focus:ring-red-500 bg-gray-700"
         />
-        <span className="text-sm text-gray-300">Show All Versions</span>
-      </label>
+        <label htmlFor="printings-filter" className="text-sm text-gray-300 cursor-pointer">
+          Show All Versions
+        </label>
+      </div>
 
       {/* Price Filter */}
       <div>
