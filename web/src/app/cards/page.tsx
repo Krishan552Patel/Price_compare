@@ -3,8 +3,39 @@ import CardGrid from "@/components/CardGrid";
 import FilterSidebar from "@/components/FilterSidebar";
 import Pagination from "@/components/Pagination";
 import SearchBar from "@/components/SearchBar";
+import type { Card } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+// Helper to ensure data is safe for React rendering
+function sanitizeCard(card: any): Card {
+  return {
+    unique_id: String(card.unique_id || ""),
+    name: String(card.name || "Unknown Card"),
+    color: card.color ? String(card.color) : null,
+    pitch: card.pitch ? String(card.pitch) : null,
+    cost: card.cost ? String(card.cost) : null,
+    power: card.power ? String(card.power) : null,
+    defense: card.defense ? String(card.defense) : null,
+    health: card.health ? String(card.health) : null,
+    intelligence: card.intelligence ? String(card.intelligence) : null,
+    types: Array.isArray(card.types) ? card.types.map(String) : [],
+    traits: Array.isArray(card.traits) ? card.traits.map(String) : [],
+    card_keywords: Array.isArray(card.card_keywords)
+      ? card.card_keywords.map(String)
+      : [],
+    functional_text: card.functional_text ? String(card.functional_text) : null,
+    functional_text_plain: card.functional_text_plain
+      ? String(card.functional_text_plain)
+      : null,
+    type_text: card.type_text ? String(card.type_text) : null,
+    image_url: card.image_url ? String(card.image_url) : null,
+    blitz_legal: Number(card.blitz_legal || 0),
+    cc_legal: Number(card.cc_legal || 0),
+    commoner_legal: Number(card.commoner_legal || 0),
+    ll_legal: Number(card.ll_legal || 0),
+  };
+}
 
 export default async function CardsPage({
   searchParams,
@@ -25,7 +56,7 @@ export default async function CardsPage({
   const page = parseInt(params.page || "1", 10);
   const pageSize = 24;
 
-  let cards: any[] = [];
+  let cards: Card[] = [];
   let total = 0;
   let filters: any = { sets: [], rarities: [], colors: [] };
   let errorMsg = "";
@@ -46,12 +77,16 @@ export default async function CardsPage({
       }),
       getFilterOptions(),
     ]);
-    cards = data.cards;
-    total = data.total;
+
+    // Sanitize cards to prevent "Objects are not valid as a React child" errors
+    cards = (data.cards || []).map(sanitizeCard);
+    total = data.total || 0;
     filters = loadedFilters;
   } catch (err: any) {
     console.error("Error loading cards:", err);
     errorMsg = err.message || "Unknown error";
+    // Fallback filters to prevent sidebar crash
+    filters = { sets: [], rarities: [], colors: [] };
   }
 
   const totalPages = Math.ceil(total / pageSize);
@@ -82,6 +117,7 @@ export default async function CardsPage({
         <div className="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded mb-8">
           <h3 className="font-bold">Error loading cards</h3>
           <p>{errorMsg}</p>
+          <p className="text-xs mt-2 text-gray-400 font-mono">{JSON.stringify(errorMsg)}</p>
         </div>
       )}
 
