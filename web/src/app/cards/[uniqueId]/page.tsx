@@ -4,6 +4,7 @@ import CardImage from "@/components/CardImage";
 import { ColorBadge, LegalBadge } from "@/components/Badge";
 import PriceTable from "@/components/PriceTable";
 import PriceChart from "@/components/PriceChart";
+import SearchBar from "@/components/SearchBar";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,11 @@ export default async function CardDetailPage({
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
+      {/* Search Bar */}
+      <div className="mb-8 max-w-md">
+        <SearchBar />
+      </div>
+
       {/* Card Header */}
       <div className="flex flex-col md:flex-row gap-8 mb-10">
         {/* Image */}

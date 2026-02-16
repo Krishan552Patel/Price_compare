@@ -50,8 +50,12 @@ export interface RetailerPrice {
   printing_unique_id: string;
   card_id: string;
   foiling: string | null;
+  foiling_name: string | null;
   edition: string | null;
+  edition_name: string | null;
   rarity: string | null;
+  rarity_name: string | null;
+  set_name: string | null;
   updated_at: string;
 }
 
