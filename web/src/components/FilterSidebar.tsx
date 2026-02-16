@@ -1,5 +1,8 @@
+"use client";
+
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { FilterOptions } from "@/lib/types";
-import Link from "next/link";
+import { useState, useEffect } from "react";
 
 export default function FilterSidebar({
   filters,
@@ -7,55 +10,148 @@ export default function FilterSidebar({
   currentRarity,
   currentColor,
   currentQuery,
+  currentInStock,
+  currentShowPrintings,
+  currentMinPrice,
+  currentMaxPrice,
 }: {
   filters: FilterOptions;
   currentSet?: string;
   currentRarity?: string;
   currentColor?: string;
   currentQuery?: string;
+  currentInStock?: boolean;
+  currentShowPrintings?: boolean;
+  currentMinPrice?: number;
+  currentMaxPrice?: number;
 }) {
-  function buildUrl(params: Record<string, string | undefined>) {
-    const searchParams = new URLSearchParams();
-    if (currentQuery) searchParams.set("q", currentQuery);
-    if (currentSet) searchParams.set("set", currentSet);
-    if (currentRarity) searchParams.set("rarity", currentRarity);
-    if (currentColor) searchParams.set("color", currentColor);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [min, setMin] = useState(currentMinPrice?.toString() || "");
+  const [max, setMax] = useState(currentMaxPrice?.toString() || "");
 
-    for (const [key, value] of Object.entries(params)) {
-      if (value) {
-        searchParams.set(key, value);
-      } else {
-        searchParams.delete(key);
-      }
+  // Sync local state with URL if it changes externally
+  useEffect(() => {
+    setMin(currentMinPrice?.toString() || "");
+  }, [currentMinPrice]);
+
+  useEffect(() => {
+    setMax(currentMaxPrice?.toString() || "");
+  }, [currentMaxPrice]);
+
+  function updateFilter(key: string, value: string | undefined) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value) {
+      params.set(key, value);
+    } else {
+      params.delete(key);
     }
-    searchParams.delete("page");
-
-    const qs = searchParams.toString();
-    return `/cards${qs ? `?${qs}` : ""}`;
+    params.delete("page"); // Reset page on filter change
+    router.push(`/cards?${params.toString()}`);
   }
+
+  function handlePriceApply() {
+    const params = new URLSearchParams(searchParams.toString());
+    if (min) params.set("minPrice", min);
+    else params.delete("minPrice");
+
+    if (max) params.set("maxPrice", max);
+    else params.delete("maxPrice");
+
+    params.delete("page");
+    router.push(`/cards?${params.toString()}`);
+  }
+
+  const hasFilters =
+    currentSet ||
+    currentRarity ||
+    currentColor ||
+    currentInStock ||
+    currentShowPrintings ||
+    currentMinPrice ||
+    currentMaxPrice;
 
   return (
     <div className="space-y-6">
       {/* Clear filters */}
-      {(currentSet || currentRarity || currentColor) && (
-        <Link
-          href={currentQuery ? `/cards?q=${currentQuery}` : "/cards"}
+      {hasFilters && (
+        <button
+          onClick={() => {
+            const params = new URLSearchParams();
+            if (currentQuery) params.set("q", currentQuery);
+            router.push(`/cards?${params.toString()}`);
+            setMin("");
+            setMax("");
+          }}
           className="text-sm text-red-500 hover:text-red-400"
         >
           Clear all filters
-        </Link>
+        </button>
       )}
+
+      {/* Stock Filter */}
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!currentInStock}
+          onChange={(e) =>
+            updateFilter("inStock", e.target.checked ? "true" : undefined)
+          }
+          className="w-4 h-4 rounded border-gray-600 text-red-600 focus:ring-red-500 bg-gray-700"
+        />
+        <span className="text-sm text-gray-300">In Stock Only</span>
+      </label>
+
+      {/* Show Printings Filter */}
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!currentShowPrintings}
+          onChange={(e) =>
+            updateFilter("showPrintings", e.target.checked ? "true" : undefined)
+          }
+          className="w-4 h-4 rounded border-gray-600 text-red-600 focus:ring-red-500 bg-gray-700"
+        />
+        <span className="text-sm text-gray-300">Show All Versions</span>
+      </label>
+
+      {/* Price Filter */}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-300 mb-2">
+          Price (CAD)
+        </h3>
+        <div className="flex items-center gap-2 mb-2">
+          <input
+            type="number"
+            placeholder="Min"
+            value={min}
+            onChange={(e) => setMin(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:border-red-500 outline-none"
+          />
+          <span className="text-gray-500">-</span>
+          <input
+            type="number"
+            placeholder="Max"
+            value={max}
+            onChange={(e) => setMax(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:border-red-500 outline-none"
+          />
+        </div>
+        <button
+          onClick={handlePriceApply}
+          className="w-full bg-gray-700 hover:bg-gray-600 text-xs text-white py-1 rounded transition"
+        >
+          Apply Price Range
+        </button>
+      </div>
 
       {/* Set Filter */}
       <div>
         <h3 className="text-sm font-semibold text-gray-300 mb-2">Set</h3>
         <select
-          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white"
-          defaultValue={currentSet || ""}
-          onChange={(e) => {
-            const val = e.target.value;
-            window.location.href = buildUrl({ set: val || undefined });
-          }}
+          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white focus:border-red-500 outline-none"
+          value={currentSet || ""}
+          onChange={(e) => updateFilter("set", e.target.value || undefined)}
         >
           <option value="">All Sets</option>
           {filters.sets.map((s) => (
@@ -70,12 +166,9 @@ export default function FilterSidebar({
       <div>
         <h3 className="text-sm font-semibold text-gray-300 mb-2">Rarity</h3>
         <select
-          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white"
-          defaultValue={currentRarity || ""}
-          onChange={(e) => {
-            const val = e.target.value;
-            window.location.href = buildUrl({ rarity: val || undefined });
-          }}
+          className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white focus:border-red-500 outline-none"
+          value={currentRarity || ""}
+          onChange={(e) => updateFilter("rarity", e.target.value || undefined)}
         >
           <option value="">All Rarities</option>
           {filters.rarities.map((r) => (
@@ -90,20 +183,26 @@ export default function FilterSidebar({
       <div>
         <h3 className="text-sm font-semibold text-gray-300 mb-2">Color</h3>
         <div className="flex flex-wrap gap-2">
-          <Link
-            href={buildUrl({ color: undefined })}
-            className={`px-3 py-1 rounded text-sm transition ${!currentColor ? "bg-red-600 text-white" : "bg-gray-800 text-gray-300 hover:bg-gray-700"}`}
+          <button
+            onClick={() => updateFilter("color", undefined)}
+            className={`px-3 py-1 rounded text-sm transition ${!currentColor
+              ? "bg-red-600 text-white"
+              : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+              }`}
           >
             All
-          </Link>
+          </button>
           {filters.colors.map((color) => (
-            <Link
+            <button
               key={color}
-              href={buildUrl({ color })}
-              className={`px-3 py-1 rounded text-sm capitalize transition ${currentColor === color ? "bg-red-600 text-white" : "bg-gray-800 text-gray-300 hover:bg-gray-700"}`}
+              onClick={() => updateFilter("color", color)}
+              className={`px-3 py-1 rounded text-sm capitalize transition ${currentColor === color
+                ? "bg-red-600 text-white"
+                : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                }`}
             >
               {color}
-            </Link>
+            </button>
           ))}
         </div>
       </div>

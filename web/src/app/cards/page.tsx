@@ -16,13 +16,43 @@ export default async function CardsPage({
   const set = params.set;
   const rarity = params.rarity;
   const color = params.color;
+  const inStock = params.inStock === "true";
+  const showPrintings = params.showPrintings === "true";
+  const rawMinPrice = params.minPrice ? parseFloat(params.minPrice) : undefined;
+  const rawMaxPrice = params.maxPrice ? parseFloat(params.maxPrice) : undefined;
+  const minPrice = !isNaN(rawMinPrice || NaN) ? rawMinPrice : undefined;
+  const maxPrice = !isNaN(rawMaxPrice || NaN) ? rawMaxPrice : undefined;
   const page = parseInt(params.page || "1", 10);
   const pageSize = 24;
 
-  const [{ cards, total }, filters] = await Promise.all([
-    browseCards({ query, set, rarity, color, page, pageSize }),
-    getFilterOptions(),
-  ]);
+  let cards: any[] = [];
+  let total = 0;
+  let filters: any = { sets: [], rarities: [], colors: [] };
+  let errorMsg = "";
+
+  try {
+    const [data, loadedFilters] = await Promise.all([
+      browseCards({
+        query,
+        set,
+        rarity,
+        color,
+        page,
+        pageSize,
+        minPrice,
+        maxPrice,
+        inStock,
+        groupByPrinting: !!query || showPrintings,
+      }),
+      getFilterOptions(),
+    ]);
+    cards = data.cards;
+    total = data.total;
+    filters = loadedFilters;
+  } catch (err: any) {
+    console.error("Error loading cards:", err);
+    errorMsg = err.message || "Unknown error";
+  }
 
   const totalPages = Math.ceil(total / pageSize);
 
@@ -32,6 +62,9 @@ export default async function CardsPage({
   if (set) baseParams.set("set", set);
   if (rarity) baseParams.set("rarity", rarity);
   if (color) baseParams.set("color", color);
+  if (inStock) baseParams.set("inStock", "true");
+  if (minPrice) baseParams.set("minPrice", minPrice.toString());
+  if (maxPrice) baseParams.set("maxPrice", maxPrice.toString());
   const baseUrl = `/cards${baseParams.toString() ? `?${baseParams.toString()}` : ""}`;
 
   return (
@@ -45,6 +78,13 @@ export default async function CardsPage({
         </div>
       </div>
 
+      {errorMsg && (
+        <div className="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded mb-8">
+          <h3 className="font-bold">Error loading cards</h3>
+          <p>{errorMsg}</p>
+        </div>
+      )}
+
       <div className="flex flex-col lg:flex-row gap-8">
         {/* Sidebar */}
         <div className="lg:w-56 shrink-0">
@@ -54,6 +94,10 @@ export default async function CardsPage({
             currentRarity={rarity}
             currentColor={color}
             currentQuery={query}
+            currentInStock={inStock}
+            currentShowPrintings={showPrintings}
+            currentMinPrice={minPrice}
+            currentMaxPrice={maxPrice}
           />
         </div>
 
