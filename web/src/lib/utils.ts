@@ -3,9 +3,10 @@ export function formatPrice(cad: number): string {
 }
 
 export function parseJsonArray(value: string | null | undefined): string[] {
-  if (!value) return [];
+  if (!value || value === "null") return [];
   try {
-    return JSON.parse(value);
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
