@@ -126,10 +126,18 @@ export async function getCardPrices(
            rp.price_cad, rp.compare_at_price_cad,
            rp.in_stock, rp.product_url, rp.updated_at,
            rp.printing_unique_id,
-           p.card_id, p.foiling, p.edition, p.rarity
+           p.card_id, p.foiling, p.edition, p.rarity,
+           f.name as foiling_name,
+           e.name as edition_name,
+           r.name as rarity_name,
+           s.name as set_name
          FROM retailer_products rp
          JOIN retailers ret ON rp.retailer_slug = ret.slug
          JOIN printings p ON rp.printing_unique_id = p.unique_id
+         LEFT JOIN foilings f ON p.foiling = f.unique_id
+         LEFT JOIN editions e ON p.edition = e.unique_id
+         LEFT JOIN rarities r ON p.rarity = r.unique_id
+         LEFT JOIN sets s ON p.set_id = s.set_code
          WHERE p.card_unique_id = ?
          ORDER BY rp.price_cad ASC`,
     args: [cardUniqueId],
@@ -149,8 +157,12 @@ export async function getCardPrices(
     printing_unique_id: row.printing_unique_id as string,
     card_id: row.card_id as string,
     foiling: row.foiling as string | null,
+    foiling_name: row.foiling_name as string | null,
     edition: row.edition as string | null,
+    edition_name: row.edition_name as string | null,
     rarity: row.rarity as string | null,
+    rarity_name: row.rarity_name as string | null,
+    set_name: row.set_name as string | null,
     updated_at: row.updated_at as string,
   }));
 }
