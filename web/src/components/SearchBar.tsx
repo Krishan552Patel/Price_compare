@@ -58,7 +58,12 @@ export default function SearchBar({ large = false }: { large?: boolean }) {
     e.preventDefault();
     if (query.trim()) {
       setIsOpen(false);
-      router.push(`/cards?q=${encodeURIComponent(query.trim())}`);
+      // Create a NEW URLSearchParams object based on current params
+      // This ensures we keep existing filters (like set, rarity) when searching
+      const currentParams = new URLSearchParams(window.location.search);
+      currentParams.set("q", query.trim());
+      currentParams.delete("page"); // Reset page
+      router.push(`/cards?${currentParams.toString()}`);
     }
   }
 
