@@ -206,7 +206,42 @@ export async function getPriceHistory(
 // DEALS
 // ============================================================
 
-export async function getDeals(limit: number = 50): Promise<DealItem[]> {
+export async function getDeals(params: {
+  limit?: number;
+  retailer?: string;
+  minDiscount?: number;
+  sort?: string;
+} = {}): Promise<DealItem[]> {
+  const { limit = 50, retailer, minDiscount, sort = "discount_desc" } = params;
+
+  const conditions: string[] = [
+    "rp.in_stock = 1",
+    "rp.compare_at_price_cad IS NOT NULL",
+    "rp.compare_at_price_cad > rp.price_cad",
+    "rp.price_cad > 0",
+  ];
+  const args: (string | number)[] = [];
+
+  if (retailer) {
+    conditions.push("rp.retailer_slug = ?");
+    args.push(retailer);
+  }
+  if (minDiscount) {
+    conditions.push(
+      "ROUND((1.0 - rp.price_cad / rp.compare_at_price_cad) * 100, 1) >= ?"
+    );
+    args.push(minDiscount);
+  }
+
+  const sortMap: Record<string, string> = {
+    discount_desc: "discount_pct DESC",
+    price_asc: "rp.price_cad ASC",
+    price_desc: "rp.price_cad DESC",
+  };
+  const orderBy = sortMap[sort] || sortMap.discount_desc;
+
+  args.push(limit);
+
   const result = await db.execute({
     sql: `SELECT c.name as card_name, p.card_id, p.image_url,
            c.unique_id as card_unique_id,
@@ -218,13 +253,10 @@ export async function getDeals(limit: number = 50): Promise<DealItem[]> {
          JOIN retailers ret ON rp.retailer_slug = ret.slug
          JOIN printings p ON rp.printing_unique_id = p.unique_id
          JOIN cards c ON p.card_unique_id = c.unique_id
-         WHERE rp.in_stock = 1
-           AND rp.compare_at_price_cad IS NOT NULL
-           AND rp.compare_at_price_cad > rp.price_cad
-           AND rp.price_cad > 0
-         ORDER BY discount_pct DESC
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY ${orderBy}
          LIMIT ?`,
-    args: [limit],
+    args,
   });
 
   return result.rows.map((row) => ({
@@ -301,6 +333,7 @@ export async function browseCards(params: {
   maxPrice?: number;
   inStock?: boolean;
   groupByPrinting?: boolean;
+  sort?: string;
 }): Promise<{ cards: Card[]; total: number }> {
   try {
     const {
@@ -313,6 +346,7 @@ export async function browseCards(params: {
       maxPrice,
       inStock,
       groupByPrinting = false,
+      sort = "name_asc",
       page = 1,
       pageSize = 24,
     } = params;
@@ -375,6 +409,15 @@ export async function browseCards(params: {
     const countResult = await db.execute({ sql: countSql, args });
     const total = Number(countResult.rows[0].total);
 
+    // Sort mapping
+    const sortMap: Record<string, string> = {
+      name_asc: "c.name ASC",
+      name_desc: "c.name DESC",
+      price_asc: "lowest_price IS NULL, lowest_price ASC",
+      price_desc: "lowest_price IS NULL DESC, lowest_price DESC",
+    };
+    const orderBy = sortMap[sort] || sortMap.name_asc;
+
     // Main data query
     let sql = "";
     if (groupByPrinting) {
@@ -386,7 +429,7 @@ export async function browseCards(params: {
              FROM cards c
              ${joinClause}
              ${whereClause}
-             ORDER BY c.name, p.set_id
+             ORDER BY ${orderBy}
              LIMIT ? OFFSET ?`;
     } else {
       sql = `SELECT DISTINCT c.unique_id, c.name, c.color, c.pitch, c.cost, c.power,
@@ -401,7 +444,7 @@ export async function browseCards(params: {
              FROM cards c
              ${joinClause}
              ${whereClause}
-             ORDER BY c.name
+             ORDER BY ${orderBy}
              LIMIT ? OFFSET ?`;
     }
 

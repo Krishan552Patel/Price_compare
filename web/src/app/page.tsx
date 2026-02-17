@@ -10,7 +10,7 @@ export default async function HomePage() {
   let deals: Awaited<ReturnType<typeof getDeals>> = [];
 
   try {
-    [stats, deals] = await Promise.all([getStats(), getDeals(6)]);
+    [stats, deals] = await Promise.all([getStats(), getDeals({ limit: 6 })]);
   } catch (e) {
     console.error("Failed to load home page data:", e);
   }

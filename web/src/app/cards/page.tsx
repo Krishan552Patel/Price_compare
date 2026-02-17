@@ -1,8 +1,9 @@
 import { browseCards, getFilterOptions } from "@/lib/queries";
 import CardGrid from "@/components/CardGrid";
-import FilterSidebar from "@/components/FilterSidebar";
+import FilterDrawer from "@/components/FilterDrawer";
+import GridControls from "@/components/GridControls";
+import SortSelect from "@/components/SortSelect";
 import Pagination from "@/components/Pagination";
-import SearchBar from "@/components/SearchBar";
 import type { Card } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +50,8 @@ export default async function CardsPage({
   const rarity = params.rarity;
   const color = params.color;
   const type = params.type;
+  const sort = params.sort || "name_asc";
+  const density = params.density || "regular";
   const inStock = params.inStock === "true";
   const showPrintings = params.showPrintings === "true";
   const rawMinPrice = params.minPrice ? parseFloat(params.minPrice) : undefined;
@@ -76,6 +79,7 @@ export default async function CardsPage({
         minPrice,
         maxPrice,
         inStock,
+        sort,
         groupByPrinting: !!query || showPrintings,
       }),
       getFilterOptions(),
@@ -94,6 +98,10 @@ export default async function CardsPage({
 
   const totalPages = Math.ceil(total / pageSize);
 
+  // Count active filters
+  const filterCount = [set, rarity, color, type, inStock, showPrintings, minPrice, maxPrice]
+    .filter(Boolean).length;
+
   // Build base URL for pagination
   const baseParams = new URLSearchParams();
   if (query) baseParams.set("q", query);
@@ -101,60 +109,66 @@ export default async function CardsPage({
   if (rarity) baseParams.set("rarity", rarity);
   if (color) baseParams.set("color", color);
   if (type) baseParams.set("type", type);
+  if (sort && sort !== "name_asc") baseParams.set("sort", sort);
+  if (density && density !== "regular") baseParams.set("density", density);
   if (inStock) baseParams.set("inStock", "true");
+  if (showPrintings) baseParams.set("showPrintings", "true");
   if (minPrice) baseParams.set("minPrice", minPrice.toString());
   if (maxPrice) baseParams.set("maxPrice", maxPrice.toString());
   const baseUrl = `/cards${baseParams.toString() ? `?${baseParams.toString()}` : ""}`;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-4">
-          {query ? `Results for "${query}"` : "Card Database"}
-        </h1>
-        <div className="max-w-md">
-          <SearchBar />
-        </div>
-      </div>
+      {/* Page title */}
+      <h1 className="text-3xl font-bold mb-6">
+        {query ? `Results for "${query}"` : "Card Database"}
+      </h1>
 
       {errorMsg && (
-        <div className="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded mb-8">
+        <div className="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded mb-6">
           <h3 className="font-bold">Error loading cards</h3>
           <p>{errorMsg}</p>
-          <p className="text-xs mt-2 text-gray-400 font-mono">{JSON.stringify(errorMsg)}</p>
         </div>
       )}
 
-      <div className="flex flex-col lg:flex-row gap-8">
-        {/* Sidebar */}
-        <div className="lg:w-56 shrink-0">
-          <FilterSidebar
-            filters={filters}
-            currentSet={set}
-            currentRarity={rarity}
-            currentColor={color}
-            currentType={type}
-            currentQuery={query}
-            currentInStock={inStock}
-            currentShowPrintings={showPrintings}
-            currentMinPrice={minPrice}
-            currentMaxPrice={maxPrice}
-          />
-        </div>
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-3 mb-6">
+        <FilterDrawer
+          filters={filters}
+          filterCount={filterCount}
+          currentSet={set}
+          currentRarity={rarity}
+          currentColor={color}
+          currentType={type}
+          currentQuery={query}
+          currentInStock={inStock}
+          currentShowPrintings={showPrintings}
+          currentMinPrice={minPrice}
+          currentMaxPrice={maxPrice}
+        />
 
-        {/* Main content */}
-        <div className="flex-1">
-          <p className="text-sm text-gray-400 mb-4">
-            {total.toLocaleString()} card{total !== 1 ? "s" : ""} found
-          </p>
-          <CardGrid cards={cards} />
-          <Pagination
-            currentPage={page}
-            totalPages={totalPages}
-            baseUrl={baseUrl}
-          />
+        <SortSelect currentSort={sort} />
+
+        <span className="text-sm text-gray-400">
+          {total.toLocaleString()} card{total !== 1 ? "s" : ""}
+        </span>
+
+        <div className="ml-auto hidden sm:block">
+          <GridControls currentDensity={density} />
         </div>
       </div>
+
+      {/* Card Grid — full width */}
+      <CardGrid
+        cards={cards}
+        density={density as "few" | "regular" | "many" | "most"}
+      />
+
+      <Pagination
+        currentPage={page}
+        totalPages={totalPages}
+        baseUrl={baseUrl}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { SearchResult } from "@/lib/types";
 
@@ -9,8 +9,10 @@ export default function SearchBar({ large = false }: { large?: boolean }) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const router = useRouter();
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<NodeJS.Timeout>(undefined);
 
   useEffect(() => {
@@ -25,6 +27,11 @@ export default function SearchBar({ large = false }: { large?: boolean }) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Reset highlight when results change
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [results]);
 
   function handleChange(value: string) {
     setQuery(value);
@@ -54,18 +61,19 @@ export default function SearchBar({ large = false }: { large?: boolean }) {
     }, 300);
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (query.trim()) {
-      setIsOpen(false);
-      // Create a NEW URLSearchParams object based on current params
-      // This ensures we keep existing filters (like set, rarity) when searching
-      const currentParams = new URLSearchParams(window.location.search);
-      currentParams.set("q", query.trim());
-      currentParams.delete("page"); // Reset page
-      router.push(`/cards?${currentParams.toString()}`);
-    }
-  }
+  const handleSubmit = useCallback(
+    (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
+      if (query.trim()) {
+        setIsOpen(false);
+        const currentParams = new URLSearchParams(window.location.search);
+        currentParams.set("q", query.trim());
+        currentParams.delete("page");
+        router.push(`/cards?${currentParams.toString()}`);
+      }
+    },
+    [query, router]
+  );
 
   function handleSelect(uniqueId: string) {
     setIsOpen(false);
@@ -73,35 +81,107 @@ export default function SearchBar({ large = false }: { large?: boolean }) {
     router.push(`/cards/${uniqueId}`);
   }
 
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (!isOpen || results.length === 0) return;
+
+    // Total items = results + 1 "see all" button
+    const totalItems = results.length + 1;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightedIndex((prev) =>
+        prev < totalItems - 1 ? prev + 1 : 0
+      );
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightedIndex((prev) =>
+        prev > 0 ? prev - 1 : totalItems - 1
+      );
+    } else if (e.key === "Enter" && highlightedIndex >= 0) {
+      e.preventDefault();
+      if (highlightedIndex < results.length) {
+        handleSelect(results[highlightedIndex].unique_id);
+      } else {
+        // "See all results" item
+        handleSubmit();
+      }
+    } else if (e.key === "Escape") {
+      setIsOpen(false);
+      inputRef.current?.blur();
+    }
+  }
+
   return (
     <div ref={wrapperRef} className="relative w-full">
       <form onSubmit={handleSubmit}>
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => handleChange(e.target.value)}
-          placeholder="Search cards..."
-          className={`w-full bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-red-500 transition ${large ? "px-5 py-3 text-lg" : "px-3 py-2 text-sm"}`}
-        />
-        {loading && (
-          <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <div className="w-4 h-4 border-2 border-gray-600 border-t-red-500 rounded-full animate-spin" />
-          </div>
-        )}
+        <div className="relative">
+          {/* Search icon */}
+          <svg
+            className={`absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 ${large ? "w-5 h-5" : "w-4 h-4"}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => handleChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={() => {
+              if (results.length > 0) setIsOpen(true);
+            }}
+            placeholder="Search cards..."
+            className={`w-full bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-red-500 transition ${
+              large ? "pl-11 pr-5 py-3 text-lg" : "pl-9 pr-3 py-2 text-sm"
+            }`}
+          />
+          {loading && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="w-4 h-4 border-2 border-gray-600 border-t-red-500 rounded-full animate-spin" />
+            </div>
+          )}
+        </div>
       </form>
 
       {isOpen && results.length > 0 && (
-        <div className="absolute top-full mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden z-50">
-          {results.map((result) => (
+        <div className="absolute top-full mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden z-50 max-h-[400px] overflow-y-auto">
+          {results.map((result, index) => (
             <button
               key={result.unique_id}
               onClick={() => handleSelect(result.unique_id)}
-              className="w-full text-left px-4 py-3 hover:bg-gray-700 transition flex items-center gap-3"
+              onMouseEnter={() => setHighlightedIndex(index)}
+              className={`w-full text-left px-3 py-2.5 transition flex items-center gap-3 ${
+                highlightedIndex === index
+                  ? "bg-gray-700"
+                  : "hover:bg-gray-700/50"
+              }`}
             >
-              <div>
-                <div className="text-white font-medium">{result.name}</div>
+              {/* Thumbnail */}
+              <div className="w-8 h-11 rounded overflow-hidden bg-gray-700 shrink-0">
+                {result.image_url ? (
+                  <img
+                    src={result.image_url}
+                    alt=""
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-600">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="text-white text-sm font-medium truncate">
+                  {result.name}
+                </div>
                 {result.type_text && (
-                  <div className="text-gray-400 text-sm">
+                  <div className="text-gray-400 text-xs truncate">
                     {result.type_text}
                   </div>
                 )}
@@ -109,8 +189,13 @@ export default function SearchBar({ large = false }: { large?: boolean }) {
             </button>
           ))}
           <button
-            onClick={handleSubmit}
-            className="w-full text-left px-4 py-2 text-sm text-gray-400 hover:bg-gray-700 border-t border-gray-700"
+            onClick={() => handleSubmit()}
+            onMouseEnter={() => setHighlightedIndex(results.length)}
+            className={`w-full text-left px-3 py-2 text-sm text-gray-400 border-t border-gray-700 transition ${
+              highlightedIndex === results.length
+                ? "bg-gray-700"
+                : "hover:bg-gray-700/50"
+            }`}
           >
             See all results for &ldquo;{query}&rdquo;
           </button>
