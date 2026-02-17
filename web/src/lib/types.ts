@@ -19,6 +19,7 @@ export interface Card {
   commoner_legal: number;
   ll_legal: number;
   image_url: string | null;
+  lowest_price?: number | null;
 }
 
 export interface Printing {
@@ -92,6 +93,7 @@ export interface FilterOptions {
   sets: SetInfo[];
   rarities: { unique_id: string; name: string }[];
   colors: string[];
+  classes: string[];
 }
 
 export interface SearchResult {

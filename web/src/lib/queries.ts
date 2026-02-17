@@ -78,6 +78,18 @@ export async function getCard(uniqueId: string): Promise<Card | null> {
   };
 }
 
+export async function getPrintingParent(
+  printingUniqueId: string
+): Promise<string | null> {
+  const result = await db.execute({
+    sql: "SELECT card_unique_id FROM printings WHERE unique_id = ?",
+    args: [printingUniqueId],
+  });
+
+  if (result.rows.length === 0) return null;
+  return result.rows[0].card_unique_id as string;
+}
+
 export async function getCardPrintings(
   cardUniqueId: string
 ): Promise<Printing[]> {
@@ -237,26 +249,31 @@ export async function getDeals(limit: number = 50): Promise<DealItem[]> {
 // ============================================================
 
 export async function getFilterOptions(): Promise<FilterOptions> {
-  const [setsResult, raritiesResult, colorsResult] = await Promise.all([
-    db.execute({
-      sql: `SELECT DISTINCT s.set_code, s.name
-            FROM sets s
-            JOIN printings p ON p.set_id = s.set_code
-            ORDER BY s.name`,
-      args: [],
-    }),
-    db.execute({
-      sql: `SELECT DISTINCT r.unique_id, r.name
-            FROM rarities r
-            JOIN printings p ON p.rarity = r.unique_id
-            ORDER BY r.name`,
-      args: [],
-    }),
-    db.execute({
-      sql: `SELECT DISTINCT color FROM cards WHERE color IS NOT NULL ORDER BY color`,
-      args: [],
-    }),
-  ]);
+  const [setsResult, raritiesResult, colorsResult, classesResult] =
+    await Promise.all([
+      db.execute({
+        sql: `SELECT DISTINCT s.set_code, s.name
+              FROM sets s
+              JOIN printings p ON p.set_id = s.set_code
+              ORDER BY s.name`,
+        args: [],
+      }),
+      db.execute({
+        sql: `SELECT DISTINCT r.unique_id, r.name
+              FROM rarities r
+              JOIN printings p ON p.rarity = r.unique_id
+              ORDER BY r.name`,
+        args: [],
+      }),
+      db.execute({
+        sql: `SELECT DISTINCT color FROM cards WHERE color IS NOT NULL ORDER BY color`,
+        args: [],
+      }),
+      db.execute({
+        sql: `SELECT DISTINCT type_text FROM cards WHERE type_text IS NOT NULL ORDER BY type_text`,
+        args: [],
+      }),
+    ]);
 
   return {
     sets: setsResult.rows.map((row) => ({
@@ -268,6 +285,7 @@ export async function getFilterOptions(): Promise<FilterOptions> {
       name: row.name as string,
     })),
     colors: colorsResult.rows.map((row) => row.color as string),
+    classes: classesResult.rows.map((row) => row.type_text as string),
   };
 }
 
@@ -276,6 +294,7 @@ export async function browseCards(params: {
   set?: string;
   rarity?: string;
   color?: string;
+  type?: string;
   page?: number;
   pageSize?: number;
   minPrice?: number;
@@ -283,162 +302,171 @@ export async function browseCards(params: {
   inStock?: boolean;
   groupByPrinting?: boolean;
 }): Promise<{ cards: Card[]; total: number }> {
-  const {
-    query,
-    set,
-    rarity,
-    color,
-    minPrice,
-    maxPrice,
-    inStock,
-    groupByPrinting = false,
-    page = 1,
-    pageSize = 24,
-  } = params;
-  const offset = (page - 1) * pageSize;
+  try {
+    const {
+      query,
+      set,
+      rarity,
+      color,
+      type,
+      minPrice,
+      maxPrice,
+      inStock,
+      groupByPrinting = false,
+      page = 1,
+      pageSize = 24,
+    } = params;
+    const offset = (page - 1) * pageSize;
 
-  const conditions: string[] = [];
-  const args: (string | number)[] = [];
+    const conditions: string[] = [];
+    const args: (string | number)[] = [];
 
-  // Filter conditions
-  if (query) {
-    conditions.push("c.name LIKE ?");
-    args.push(`%${query}%`);
-  }
-  if (set) {
-    conditions.push("p.set_id = ?");
-    args.push(set);
-  }
-  if (rarity) {
-    conditions.push("p.rarity = ?");
-    args.push(rarity);
-  }
-  if (color) {
-    conditions.push("c.color = ?");
-    args.push(color);
-  }
-
-  // Price & Stock filtering requires joining retailer_products
-  // We use a subquery or join to filter cards that have AT LEAST ONE matching product
-  // Note: This is a "card" search, so we want cards where *any* printing/product matches criteria.
-  const priceStockJoin =
-    minPrice || maxPrice || inStock
-      ? `JOIN (
-           SELECT DISTINCT p.card_unique_id
-           FROM retailer_products rp
-           JOIN printings p ON rp.printing_unique_id = p.unique_id
-           WHERE 1=1
-           ${inStock ? "AND rp.in_stock = 1" : ""}
-           ${minPrice ? `AND rp.price_cad >= ${Number(minPrice)}` : ""}
-           ${maxPrice ? `AND rp.price_cad <= ${Number(maxPrice)}` : ""}
-         ) filter ON filter.card_unique_id = c.unique_id`
-      : "";
-
-  const whereClause =
-    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-
-  const needsPrintingJoin = set || rarity;
-
-  const joinClause = `
-    ${needsPrintingJoin || groupByPrinting ? "JOIN printings p ON p.card_unique_id = c.unique_id" : ""}
-    ${priceStockJoin}
-  `;
-
-  // If grouping by printing, we count distinct printings
-  const countSql = groupByPrinting
-    ? `SELECT COUNT(DISTINCT p.unique_id) as total FROM cards c ${joinClause} ${whereClause}`
-    : `SELECT COUNT(DISTINCT c.unique_id) as total FROM cards c ${joinClause} ${whereClause}`;
-
-  console.log("[browseCards] Count SQL:", countSql, "Args:", args);
-  const countResult = await db.execute({
-    sql: countSql,
-    args,
-  });
-  const total = Number(countResult.rows[0].total);
-
-  // If grouping by printing, we select printing details
-  // and map them to the Card interface (using printing image/ID)
-  let sql = "";
-  if (groupByPrinting) {
-    sql = `SELECT p.unique_id as printing_uid, c.name, c.color, c.pitch, c.types, c.type_text,
-             p.image_url as image_url, p.set_id as set_id, p.rarity, p.foiling,
-             (SELECT s.name FROM sets s WHERE s.set_code = p.set_id) as set_name
-           FROM cards c
-           ${joinClause}
-           ${whereClause}
-           ORDER BY c.name, p.set_id
-           LIMIT ? OFFSET ?`;
-  } else {
-    sql = `SELECT DISTINCT c.unique_id, c.name, c.color, c.pitch, c.types, c.type_text,
-             (SELECT p2.image_url FROM printings p2 WHERE p2.card_unique_id = c.unique_id
-              AND p2.image_url IS NOT NULL LIMIT 1) as image_url
-           FROM cards c
-           ${joinClause}
-           ${whereClause}
-           ORDER BY c.name
-           LIMIT ? OFFSET ?`;
-  }
-
-  console.log("[browseCards] Main SQL:", sql, "Args:", [...args, pageSize, offset]);
-  const result = await db.execute({
-    sql,
-    args: [...args, pageSize, offset],
-  });
-
-  const cards: Card[] = result.rows.map((row) => {
-    // If grouping by printing, we construct a "Card" object that actually represents a printing
-    // We append the Set Code to the name to differentiate them in the UI
-    if (groupByPrinting) {
-      return {
-        unique_id: row.printing_uid as string, // Link to printing
-        name: `${row.name} (${row.set_id})`,
-        color: row.color as string | null,
-        pitch: row.pitch as string | null,
-        types: parseJsonArray(row.types as string),
-        type_text: row.type_text as string | null,
-        image_url: row.image_url as string | null,
-        // Fill other required Card fields with null/defaults
-        cost: null,
-        power: null,
-        defense: null,
-        health: null,
-        intelligence: null,
-        traits: [],
-        card_keywords: [],
-        functional_text: null,
-        functional_text_plain: null,
-        blitz_legal: 0,
-        cc_legal: 0,
-        commoner_legal: 0,
-        ll_legal: 0,
-      };
+    // Filter conditions
+    if (query) {
+      conditions.push("c.name LIKE ?");
+      args.push(`%${query}%`);
+    }
+    if (set) {
+      conditions.push("p.set_id = ?");
+      args.push(set);
+    }
+    if (rarity) {
+      conditions.push("p.rarity = ?");
+      args.push(rarity);
+    }
+    if (color) {
+      conditions.push("c.color = ?");
+      args.push(color);
+    }
+    if (type) {
+      conditions.push("c.type_text = ?");
+      args.push(type);
     }
 
-    return {
-      unique_id: row.unique_id as string,
-      name: row.name as string,
-      color: row.color as string | null,
-      pitch: row.pitch as string | null,
-      cost: row.cost as string | null,
-      power: row.power as string | null,
-      defense: row.defense as string | null,
-      health: row.health as string | null,
-      intelligence: row.intelligence as string | null,
-      types: parseJsonArray(row.types as string),
-      traits: parseJsonArray(row.traits as string),
-      card_keywords: parseJsonArray(row.card_keywords as string),
-      functional_text: row.functional_text as string | null,
-      functional_text_plain: row.functional_text_plain as string | null,
-      type_text: row.type_text as string | null,
-      blitz_legal: row.blitz_legal as number,
-      cc_legal: row.cc_legal as number,
-      commoner_legal: row.commoner_legal as number,
-      ll_legal: row.ll_legal as number,
-      image_url: row.image_url as string | null,
-    };
-  });
+    // Price & Stock filtering — uses alias p_inner to avoid collision with outer p
+    const priceStockJoin =
+      minPrice || maxPrice || inStock
+        ? `JOIN (
+             SELECT DISTINCT p_inner.card_unique_id
+             FROM retailer_products rp
+             JOIN printings p_inner ON rp.printing_unique_id = p_inner.unique_id
+             WHERE 1=1
+             ${inStock ? "AND rp.in_stock = 1" : ""}
+             ${minPrice ? `AND rp.price_cad >= ${Number(minPrice)}` : ""}
+             ${maxPrice ? `AND rp.price_cad <= ${Number(maxPrice)}` : ""}
+           ) filter ON filter.card_unique_id = c.unique_id`
+        : "";
 
-  return { cards, total };
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const needsPrintingJoin = set || rarity;
+
+    const joinClause = `
+      ${needsPrintingJoin || groupByPrinting ? "JOIN printings p ON p.card_unique_id = c.unique_id" : ""}
+      ${priceStockJoin}
+    `;
+
+    // Count query
+    const countSql = groupByPrinting
+      ? `SELECT COUNT(DISTINCT p.unique_id) as total FROM cards c ${joinClause} ${whereClause}`
+      : `SELECT COUNT(DISTINCT c.unique_id) as total FROM cards c ${joinClause} ${whereClause}`;
+
+    const countResult = await db.execute({ sql: countSql, args });
+    const total = Number(countResult.rows[0].total);
+
+    // Main data query
+    let sql = "";
+    if (groupByPrinting) {
+      sql = `SELECT p.unique_id as printing_uid, c.name, c.color, c.pitch, c.types, c.type_text,
+               p.image_url as image_url, p.set_id as set_id, p.rarity, p.foiling,
+               (SELECT s.name FROM sets s WHERE s.set_code = p.set_id) as set_name,
+               (SELECT MIN(rp2.price_cad) FROM retailer_products rp2
+                WHERE rp2.printing_unique_id = p.unique_id AND rp2.in_stock = 1) as lowest_price
+             FROM cards c
+             ${joinClause}
+             ${whereClause}
+             ORDER BY c.name, p.set_id
+             LIMIT ? OFFSET ?`;
+    } else {
+      sql = `SELECT DISTINCT c.unique_id, c.name, c.color, c.pitch, c.cost, c.power,
+               c.defense, c.health, c.intelligence, c.types, c.traits, c.card_keywords,
+               c.functional_text, c.functional_text_plain, c.type_text,
+               c.blitz_legal, c.cc_legal, c.commoner_legal, c.ll_legal,
+               (SELECT p2.image_url FROM printings p2 WHERE p2.card_unique_id = c.unique_id
+                AND p2.image_url IS NOT NULL LIMIT 1) as image_url,
+               (SELECT MIN(rp2.price_cad) FROM retailer_products rp2
+                JOIN printings p3 ON rp2.printing_unique_id = p3.unique_id
+                WHERE p3.card_unique_id = c.unique_id AND rp2.in_stock = 1) as lowest_price
+             FROM cards c
+             ${joinClause}
+             ${whereClause}
+             ORDER BY c.name
+             LIMIT ? OFFSET ?`;
+    }
+
+    const result = await db.execute({
+      sql,
+      args: [...args, pageSize, offset],
+    });
+
+    const cards: Card[] = result.rows.map((row) => {
+      if (groupByPrinting) {
+        return {
+          unique_id: row.printing_uid as string,
+          name: `${row.name} (${row.set_id})`,
+          color: row.color as string | null,
+          pitch: row.pitch as string | null,
+          types: parseJsonArray(row.types as string),
+          type_text: row.type_text as string | null,
+          image_url: row.image_url as string | null,
+          lowest_price: row.lowest_price ? Number(row.lowest_price) : null,
+          cost: null,
+          power: null,
+          defense: null,
+          health: null,
+          intelligence: null,
+          traits: [],
+          card_keywords: [],
+          functional_text: null,
+          functional_text_plain: null,
+          blitz_legal: 0,
+          cc_legal: 0,
+          commoner_legal: 0,
+          ll_legal: 0,
+        };
+      }
+
+      return {
+        unique_id: row.unique_id as string,
+        name: row.name as string,
+        color: row.color as string | null,
+        pitch: row.pitch as string | null,
+        cost: row.cost as string | null,
+        power: row.power as string | null,
+        defense: row.defense as string | null,
+        health: row.health as string | null,
+        intelligence: row.intelligence as string | null,
+        types: parseJsonArray(row.types as string),
+        traits: parseJsonArray(row.traits as string),
+        card_keywords: parseJsonArray(row.card_keywords as string),
+        functional_text: row.functional_text as string | null,
+        functional_text_plain: row.functional_text_plain as string | null,
+        type_text: row.type_text as string | null,
+        blitz_legal: row.blitz_legal as number,
+        cc_legal: row.cc_legal as number,
+        commoner_legal: row.commoner_legal as number,
+        ll_legal: row.ll_legal as number,
+        image_url: row.image_url as string | null,
+        lowest_price: row.lowest_price ? Number(row.lowest_price) : null,
+      };
+    });
+
+    return { cards, total };
+  } catch (err) {
+    console.error("[browseCards] Error:", err);
+    return { cards: [], total: 0 };
+  }
 }
 
 // ============================================================

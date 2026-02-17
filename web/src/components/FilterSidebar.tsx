@@ -9,6 +9,7 @@ export default function FilterSidebar({
   currentSet,
   currentRarity,
   currentColor,
+  currentType,
   currentQuery,
   currentInStock,
   currentShowPrintings,
@@ -19,6 +20,7 @@ export default function FilterSidebar({
   currentSet?: string;
   currentRarity?: string;
   currentColor?: string;
+  currentType?: string;
   currentQuery?: string;
   currentInStock?: boolean;
   currentShowPrintings?: boolean;
@@ -67,6 +69,7 @@ export default function FilterSidebar({
     currentSet ||
     currentRarity ||
     currentColor ||
+    currentType ||
     currentInStock ||
     currentShowPrintings ||
     currentMinPrice ||
@@ -185,6 +188,29 @@ export default function FilterSidebar({
           ))}
         </select>
       </div>
+
+      {/* Type / Class Filter */}
+      {filters.classes && filters.classes.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-300 mb-2">
+            Type / Class
+          </h3>
+          <select
+            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white focus:border-red-500 outline-none"
+            value={currentType || ""}
+            onChange={(e) =>
+              updateFilter("type", e.target.value || undefined)
+            }
+          >
+            <option value="">All Types</option>
+            {filters.classes.map((cls) => (
+              <option key={cls} value={cls}>
+                {cls}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Color Filter */}
       <div>

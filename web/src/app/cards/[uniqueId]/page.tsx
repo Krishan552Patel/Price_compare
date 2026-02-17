@@ -1,5 +1,11 @@
-import { notFound } from "next/navigation";
-import { getCard, getCardPrintings, getCardPrices } from "@/lib/queries";
+import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
+import {
+  getCard,
+  getCardPrintings,
+  getCardPrices,
+  getPrintingParent,
+} from "@/lib/queries";
 import CardImage from "@/components/CardImage";
 import { ColorBadge, LegalBadge } from "@/components/Badge";
 import PriceTable from "@/components/PriceTable";
@@ -15,13 +21,29 @@ export default async function CardDetailPage({
 }) {
   const { uniqueId } = await params;
 
-  const [card, printings, prices] = await Promise.all([
-    getCard(uniqueId),
-    getCardPrintings(uniqueId),
-    getCardPrices(uniqueId),
-  ]);
+  // 1. Try to find the card directly
+  let card = await getCard(uniqueId);
+  let preSelectedPrintingId: string | undefined = undefined;
 
+  // 2. If not found, check if it's a printing ID
+  if (!card) {
+    const parentId = await getPrintingParent(uniqueId);
+    if (parentId) {
+      // It IS a printing! Fetch the parent card
+      card = await getCard(parentId);
+      // And mark this printing as pre-selected
+      preSelectedPrintingId = uniqueId;
+    }
+  }
+
+  // 3. If still not found, 404
   if (!card) notFound();
+
+  // 4. Fetch related data using the CANONICAL card ID
+  const [printings, prices] = await Promise.all([
+    getCardPrintings(card.unique_id),
+    getCardPrices(card.unique_id),
+  ]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -123,9 +145,17 @@ export default async function CardDetailPage({
               </thead>
               <tbody>
                 {printings.map((p) => (
-                  <tr key={p.unique_id} className="border-b border-gray-800">
-                    <td className="py-2 px-2 text-white font-mono">
-                      {p.card_id}
+                  <tr
+                    key={p.unique_id}
+                    className={`border-b border-gray-800 hover:bg-gray-800/50 transition ${preSelectedPrintingId === p.unique_id ? "bg-gray-800/70" : ""}`}
+                  >
+                    <td className="py-2 px-2">
+                      <Link
+                        href={`/cards/${p.unique_id}`}
+                        className="text-red-400 hover:text-red-300 font-mono"
+                      >
+                        {p.card_id}
+                      </Link>
                     </td>
                     <td className="py-2 px-2 text-gray-300">
                       {p.set_name || p.set_id}
@@ -150,16 +180,20 @@ export default async function CardDetailPage({
       {/* Price Comparison */}
       <section className="mb-10">
         <h2 className="text-xl font-bold mb-4">
-          Price Comparison ({prices.length} listing{prices.length !== 1 ? "s" : ""})
+          Price Comparison ({prices.length} listing
+          {prices.length !== 1 ? "s" : ""})
         </h2>
-        <PriceTable prices={prices} />
+        <PriceTable
+          prices={prices}
+          initialPrintingId={preSelectedPrintingId}
+        />
       </section>
 
       {/* Price History Chart */}
       <section className="mb-10">
         <h2 className="text-xl font-bold mb-4">Price History</h2>
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-          <PriceChart cardUniqueId={uniqueId} />
+          <PriceChart cardUniqueId={card.unique_id} />
         </div>
       </section>
     </div>
