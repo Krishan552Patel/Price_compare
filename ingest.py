@@ -4,11 +4,17 @@ FAB Cards Database Ingestion Script
 Pulls card data from the-fab-cube/flesh-and-blood-cards GitHub repo
 and populates your Turso database.
 
+By default, finds the most recently updated branch (develop, feature branches, etc.)
+instead of just the latest release tag, so you always get the freshest card data.
+
 Usage:
-    python ingest.py                 # Sync latest release
+    python ingest.py                 # Sync from most recently updated branch
+    python ingest.py --branch develop  # Sync from a specific branch
+    python ingest.py --release       # Sync from the latest release tag (old behavior)
     python ingest.py --force         # Re-sync even if already up to date
     python ingest.py --inspect       # Download and show JSON structure (no DB writes)
     python ingest.py --status        # Show current sync status
+    python ingest.py --branches      # List all branches sorted by last commit date
 """
 
 import os
@@ -157,11 +163,64 @@ def get_db():
 
 
 def get_latest_release():
+    """Get the latest GitHub release tag."""
     print("Checking latest release...")
     resp = requests.get(f"{GITHUB_API}/releases/latest", headers=get_headers())
     resp.raise_for_status()
     data = resp.json()
     return data["tag_name"], data.get("target_commitish", ""), data.get("name", "")
+
+
+def get_all_branches():
+    """Fetch all branches with their last commit date, sorted most recent first."""
+    branches = []
+    page = 1
+    while True:
+        resp = requests.get(
+            f"{GITHUB_API}/branches",
+            headers=get_headers(),
+            params={"per_page": 100, "page": page},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if not data:
+            break
+        for b in data:
+            branch_name = b["name"]
+            commit_sha = b["commit"]["sha"]
+            # Get the commit date
+            commit_resp = requests.get(
+                b["commit"]["url"], headers=get_headers()
+            )
+            commit_resp.raise_for_status()
+            commit_data = commit_resp.json()
+            commit_date = commit_data.get("commit", {}).get("committer", {}).get("date", "")
+            branches.append({
+                "name": branch_name,
+                "sha": commit_sha,
+                "date": commit_date,
+            })
+        page += 1
+        if len(data) < 100:
+            break
+
+    # Sort by date descending (most recent first)
+    branches.sort(key=lambda b: b["date"], reverse=True)
+    return branches
+
+
+def get_most_recent_branch():
+    """Find the most recently updated branch across the entire repo."""
+    print("Finding most recently updated branch...")
+    branches = get_all_branches()
+    if not branches:
+        raise Exception("No branches found!")
+
+    best = branches[0]
+    print(f"  Most recent: '{best['name']}' (updated {best['date']})")
+    if len(branches) > 1:
+        print(f"  Runner-up:   '{branches[1]['name']}' (updated {branches[1]['date']})")
+    return best["name"], best["sha"], best["date"]
 
 
 def get_last_sync(db):
@@ -172,10 +231,11 @@ def get_last_sync(db):
         return None, None
 
 
-def download_json(tag, file_key):
+def download_json(ref, file_key):
+    """Download a JSON file from the repo at the given ref (branch name or tag)."""
     path = JSON_FILES[file_key]
-    url = f"{RAW_BASE}/{tag}/{path}"
-    print(f"  Downloading {path}...")
+    url = f"{RAW_BASE}/{ref}/{path}"
+    print(f"  Downloading {path} from '{ref}'...")
     resp = requests.get(url, headers=get_headers())
     resp.raise_for_status()
     return resp.json()
@@ -439,37 +499,62 @@ def ingest_cards(db, tag):
 # COMMANDS
 # ============================================================
 
-def cmd_sync(force=False):
+def cmd_sync(force=False, use_release=False, branch=None):
     db = get_db()
 
-    tag, commit_sha, release_name = get_latest_release()
-    print(f"Latest release: {tag} ({release_name})")
+    if use_release:
+        # Old behavior: use the latest release tag
+        ref, commit_sha, source_name = get_latest_release()
+        source_type = "release"
+        print(f"Latest release: {ref} ({source_name})")
+    elif branch:
+        # User specified a specific branch
+        ref = branch
+        # Get the SHA for this branch
+        resp = requests.get(f"{GITHUB_API}/branches/{branch}", headers=get_headers())
+        resp.raise_for_status()
+        branch_data = resp.json()
+        commit_sha = branch_data["commit"]["sha"]
+        source_name = f"branch:{branch}"
+        source_type = "branch"
+        print(f"Using specified branch: {ref}")
+    else:
+        # Default: find the most recently updated branch
+        ref, commit_sha, last_date = get_most_recent_branch()
+        source_name = f"branch:{ref} (updated {last_date})"
+        source_type = "branch"
 
-    last_tag, last_date = get_last_sync(db)
+    last_tag, last_sync_date = get_last_sync(db)
     if last_tag:
-        print(f"Last sync: {last_tag} on {last_date}")
+        print(f"Last sync: {last_tag} on {last_sync_date}")
 
-    if last_tag == tag and not force:
-        print("\nAlready up to date! Use --force to re-sync.")
+    # For branch-based syncing, compare commit SHA instead of tag name
+    sync_id = f"{ref}@{commit_sha[:8]}" if source_type == "branch" else ref
+
+    if last_tag == sync_id and not force:
+        print(f"\nAlready up to date with {sync_id}! Use --force to re-sync.")
         return
 
-    print(f"\nSyncing {tag}...")
+    print(f"\nSyncing from {ref} ({source_type})...")
     start_time = datetime.now()
 
-    ingest_lookups(db, tag)
-    set_count, sp_count = ingest_sets(db, tag)
-    card_count, printing_count = ingest_cards(db, tag)
+    ingest_lookups(db, ref)
+    set_count, sp_count = ingest_sets(db, ref)
+    card_count, printing_count = ingest_cards(db, ref)
 
     db.execute(
         """INSERT INTO sync_log (release_tag, commit_sha, cards_upserted, printings_upserted, notes)
         VALUES (?, ?, ?, ?, ?)""",
-        [tag, commit_sha, card_count, printing_count, f"Sets: {set_count}, Set printings: {sp_count}"],
+        [sync_id, commit_sha, card_count, printing_count,
+         f"Source: {source_name}, Sets: {set_count}, Set printings: {sp_count}"],
     )
 
     elapsed = (datetime.now() - start_time).total_seconds()
     print(f"\n{'='*60}")
     print(f"SYNC COMPLETE in {elapsed:.1f}s")
-    print(f"  Release: {tag}")
+    print(f"  Source: {source_name}")
+    print(f"  Ref: {ref}")
+    print(f"  Commit: {commit_sha[:12]}")
     print(f"  Cards: {card_count}")
     print(f"  Printings: {printing_count}")
     print(f"  Sets: {set_count}")
@@ -496,19 +581,52 @@ def cmd_status():
         except Exception:
             print(f"  {table}: ERROR")
 
+    # Check latest release
     try:
         tag, _, name = get_latest_release()
-        if tag != last_tag:
-            print(f"\nUpdate available: {tag} ({name})")
+        if last_tag and not last_tag.startswith(tag):
+            print(f"\nRelease update available: {tag} ({name})")
         else:
-            print(f"\nUp to date with latest release")
+            print(f"\nLatest release: {tag}")
+    except Exception:
+        pass
+
+    # Check most recent branch
+    try:
+        branch_name, sha, branch_date = get_most_recent_branch()
+        sync_id = f"{branch_name}@{sha[:8]}"
+        if sync_id != last_tag:
+            print(f"Branch update available: '{branch_name}' (updated {branch_date})")
+        else:
+            print(f"Up to date with most recent branch")
     except Exception:
         pass
 
 
-def cmd_inspect():
-    tag, _, _ = get_latest_release()
-    print(f"Inspecting {tag}...\n")
+def cmd_branches():
+    """List all branches sorted by last commit date."""
+    print("Fetching branches...")
+    branches = get_all_branches()
+
+    print(f"\n{'Branch':<35} {'Last Updated':<25} {'Commit'}")
+    print("-" * 80)
+    for b in branches:
+        date_str = b["date"][:19].replace("T", " ") if b["date"] else "Unknown"
+        print(f"  {b['name']:<33} {date_str:<25} {b['sha'][:12]}")
+
+    print(f"\nTotal: {len(branches)} branches")
+    if branches:
+        print(f"Most recent: '{branches[0]['name']}' (updated {branches[0]['date']})")
+
+
+def cmd_inspect(use_release=False, branch=None):
+    if use_release:
+        tag, _, _ = get_latest_release()
+    elif branch:
+        tag = branch
+    else:
+        tag, _, _ = get_most_recent_branch()
+    print(f"Inspecting '{tag}'...\n")
 
     # Show rarity.json structure (was failing)
     rarities = download_json(tag, "rarity")
@@ -564,13 +682,18 @@ def cmd_inspect():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="FAB Cards DB Ingestion")
     parser.add_argument("--force", action="store_true", help="Force re-sync even if up to date")
+    parser.add_argument("--release", action="store_true", help="Use latest release tag instead of most recent branch")
+    parser.add_argument("--branch", type=str, default=None, help="Sync from a specific branch (e.g., develop, compendium-of-rathe)")
     parser.add_argument("--inspect", action="store_true", help="Inspect JSON structure (no DB writes)")
     parser.add_argument("--status", action="store_true", help="Show database status")
+    parser.add_argument("--branches", action="store_true", help="List all branches sorted by last commit date")
     args = parser.parse_args()
 
-    if args.inspect:
-        cmd_inspect()
+    if args.branches:
+        cmd_branches()
+    elif args.inspect:
+        cmd_inspect(use_release=args.release, branch=args.branch)
     elif args.status:
         cmd_status()
     else:
-        cmd_sync(force=args.force)
+        cmd_sync(force=args.force, use_release=args.release, branch=args.branch)
