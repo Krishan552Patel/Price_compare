@@ -60,3 +60,15 @@ export function StockBadge({ inStock }: { inStock: boolean }) {
     </span>
   );
 }
+
+export function PitchDot({ pitch }: { pitch: string | null }) {
+  if (!pitch) return null;
+  const dotColors: Record<string, string> = {
+    "1": "bg-red-500",
+    "2": "bg-yellow-400",
+    "3": "bg-blue-500",
+  };
+  const color = dotColors[pitch];
+  if (!color) return null;
+  return <span className={`inline-block w-3 h-3 rounded-full ${color}`} />;
+}
