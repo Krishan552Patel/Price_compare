@@ -7,7 +7,7 @@ import {
   getPrintingParent,
 } from "@/lib/queries";
 import CardImage from "@/components/CardImage";
-import { ColorBadge, LegalBadge, PitchDot } from "@/components/Badge";
+import { ColorBadge, LegalBadge, PitchDot, FoilingBadge } from "@/components/Badge";
 import PriceTable from "@/components/PriceTable";
 import PriceChart from "@/components/PriceChart";
 
@@ -140,8 +140,8 @@ export default async function CardDetailPage({
                         <td className="py-2 px-2 text-gray-300">
                           {p.edition || "—"}
                         </td>
-                        <td className="py-2 px-2 text-gray-300">
-                          {p.foiling_name || p.foiling || "—"}
+                        <td className="py-2 px-2">
+                          <FoilingBadge foiling={p.foiling} foilingName={p.foiling_name} />
                         </td>
                         <td className="py-2 px-2 text-gray-300">
                           {p.rarity_name || p.rarity || "—"}

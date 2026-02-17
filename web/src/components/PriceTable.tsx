@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { RetailerPrice } from "@/lib/types";
 import { formatPrice, getRetailerColor } from "@/lib/utils";
-import { StockBadge } from "./Badge";
+import { StockBadge, FoilingBadge } from "./Badge";
 
 type StockFilter = "all" | "in_stock" | "out_of_stock";
 
@@ -171,9 +171,7 @@ export default function PriceTable({
                           </span>
                         )}
                         {(price.foiling_name || price.foiling) && (
-                          <span className="bg-gray-800 text-gray-300 text-xs px-1.5 py-0.5 rounded">
-                            {price.foiling_name || price.foiling}
-                          </span>
+                          <FoilingBadge foiling={price.foiling} foilingName={price.foiling_name} />
                         )}
                         {(price.rarity_name || price.rarity) && (
                           <span className="bg-gray-800 text-gray-300 text-xs px-1.5 py-0.5 rounded">

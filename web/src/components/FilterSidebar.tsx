@@ -8,6 +8,7 @@ export default function FilterSidebar({
   filters,
   currentSet,
   currentRarity,
+  currentFoiling,
   currentColor,
   currentType,
   currentQuery,
@@ -19,6 +20,7 @@ export default function FilterSidebar({
   filters: FilterOptions;
   currentSet?: string;
   currentRarity?: string;
+  currentFoiling?: string;
   currentColor?: string;
   currentType?: string;
   currentQuery?: string;
@@ -68,6 +70,7 @@ export default function FilterSidebar({
   const hasFilters =
     currentSet ||
     currentRarity ||
+    currentFoiling ||
     currentColor ||
     currentType ||
     currentInStock ||
@@ -188,6 +191,25 @@ export default function FilterSidebar({
           ))}
         </select>
       </div>
+
+      {/* Foiling Filter */}
+      {filters.foilings && filters.foilings.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-300 mb-2">Foiling</h3>
+          <select
+            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white focus:border-red-500 outline-none"
+            value={currentFoiling || ""}
+            onChange={(e) => updateFilter("foiling", e.target.value || undefined)}
+          >
+            <option value="">All Foilings</option>
+            {filters.foilings.map((f) => (
+              <option key={f.unique_id} value={f.unique_id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Type / Class Filter */}
       {filters.classes && filters.classes.length > 0 && (

@@ -9,6 +9,7 @@ export default function FilterDrawer({
   filterCount,
   currentSet,
   currentRarity,
+  currentFoiling,
   currentColor,
   currentType,
   currentQuery,
@@ -21,6 +22,7 @@ export default function FilterDrawer({
   filterCount: number;
   currentSet?: string;
   currentRarity?: string;
+  currentFoiling?: string;
   currentColor?: string;
   currentType?: string;
   currentQuery?: string;
@@ -90,6 +92,7 @@ export default function FilterDrawer({
                 filters={filters}
                 currentSet={currentSet}
                 currentRarity={currentRarity}
+                currentFoiling={currentFoiling}
                 currentColor={currentColor}
                 currentType={currentType}
                 currentQuery={currentQuery}

@@ -92,6 +92,7 @@ export interface SetInfo {
 export interface FilterOptions {
   sets: SetInfo[];
   rarities: { unique_id: string; name: string }[];
+  foilings: { unique_id: string; name: string }[];
   colors: string[];
   classes: string[];
 }

@@ -281,7 +281,7 @@ export async function getDeals(params: {
 // ============================================================
 
 export async function getFilterOptions(): Promise<FilterOptions> {
-  const [setsResult, raritiesResult, colorsResult, classesResult] =
+  const [setsResult, raritiesResult, foilingsResult, colorsResult, classesResult] =
     await Promise.all([
       db.execute({
         sql: `SELECT DISTINCT s.set_code, s.name
@@ -295,6 +295,13 @@ export async function getFilterOptions(): Promise<FilterOptions> {
               FROM rarities r
               JOIN printings p ON p.rarity = r.unique_id
               ORDER BY r.name`,
+        args: [],
+      }),
+      db.execute({
+        sql: `SELECT DISTINCT f.unique_id, f.name
+              FROM foilings f
+              JOIN printings p ON p.foiling = f.unique_id
+              ORDER BY f.name`,
         args: [],
       }),
       db.execute({
@@ -316,6 +323,10 @@ export async function getFilterOptions(): Promise<FilterOptions> {
       unique_id: row.unique_id as string,
       name: row.name as string,
     })),
+    foilings: foilingsResult.rows.map((row) => ({
+      unique_id: row.unique_id as string,
+      name: row.name as string,
+    })),
     colors: colorsResult.rows.map((row) => row.color as string),
     classes: classesResult.rows.map((row) => row.type_text as string),
   };
@@ -327,6 +338,7 @@ export async function browseCards(params: {
   rarity?: string;
   color?: string;
   type?: string;
+  foiling?: string;
   page?: number;
   pageSize?: number;
   minPrice?: number;
@@ -342,6 +354,7 @@ export async function browseCards(params: {
       rarity,
       color,
       type,
+      foiling,
       minPrice,
       maxPrice,
       inStock,
@@ -376,6 +389,10 @@ export async function browseCards(params: {
       conditions.push("c.type_text = ?");
       args.push(type);
     }
+    if (foiling) {
+      conditions.push("p.foiling = ?");
+      args.push(foiling);
+    }
 
     // Price & Stock filtering — uses alias p_inner to avoid collision with outer p
     const priceStockJoin =
@@ -394,7 +411,7 @@ export async function browseCards(params: {
     const whereClause =
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    const needsPrintingJoin = set || rarity;
+    const needsPrintingJoin = set || rarity || foiling;
 
     const joinClause = `
       ${needsPrintingJoin || groupByPrinting ? "JOIN printings p ON p.card_unique_id = c.unique_id" : ""}
