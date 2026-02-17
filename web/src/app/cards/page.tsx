@@ -30,6 +30,7 @@ function sanitizeCard(card: any): Card {
       : null,
     type_text: card.type_text ? String(card.type_text) : null,
     image_url: card.image_url ? String(card.image_url) : null,
+    lowest_price: card.lowest_price != null ? Number(card.lowest_price) : null,
     blitz_legal: Number(card.blitz_legal || 0),
     cc_legal: Number(card.cc_legal || 0),
     commoner_legal: Number(card.commoner_legal || 0),
@@ -47,6 +48,7 @@ export default async function CardsPage({
   const set = params.set;
   const rarity = params.rarity;
   const color = params.color;
+  const type = params.type;
   const inStock = params.inStock === "true";
   const showPrintings = params.showPrintings === "true";
   const rawMinPrice = params.minPrice ? parseFloat(params.minPrice) : undefined;
@@ -58,7 +60,7 @@ export default async function CardsPage({
 
   let cards: Card[] = [];
   let total = 0;
-  let filters: any = { sets: [], rarities: [], colors: [] };
+  let filters: any = { sets: [], rarities: [], colors: [], classes: [] };
   let errorMsg = "";
 
   try {
@@ -68,6 +70,7 @@ export default async function CardsPage({
         set,
         rarity,
         color,
+        type,
         page,
         pageSize,
         minPrice,
@@ -86,7 +89,7 @@ export default async function CardsPage({
     console.error("Error loading cards:", err);
     errorMsg = err.message || "Unknown error";
     // Fallback filters to prevent sidebar crash
-    filters = { sets: [], rarities: [], colors: [] };
+    filters = { sets: [], rarities: [], colors: [], classes: [] };
   }
 
   const totalPages = Math.ceil(total / pageSize);
@@ -97,6 +100,7 @@ export default async function CardsPage({
   if (set) baseParams.set("set", set);
   if (rarity) baseParams.set("rarity", rarity);
   if (color) baseParams.set("color", color);
+  if (type) baseParams.set("type", type);
   if (inStock) baseParams.set("inStock", "true");
   if (minPrice) baseParams.set("minPrice", minPrice.toString());
   if (maxPrice) baseParams.set("maxPrice", maxPrice.toString());
@@ -129,6 +133,7 @@ export default async function CardsPage({
             currentSet={set}
             currentRarity={rarity}
             currentColor={color}
+            currentType={type}
             currentQuery={query}
             currentInStock={inStock}
             currentShowPrintings={showPrintings}

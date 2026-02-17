@@ -7,9 +7,17 @@ import { StockBadge } from "./Badge";
 
 type StockFilter = "all" | "in_stock" | "out_of_stock";
 
-export default function PriceTable({ prices }: { prices: RetailerPrice[] }) {
+export default function PriceTable({
+  prices,
+  initialPrintingId,
+}: {
+  prices: RetailerPrice[];
+  initialPrintingId?: string;
+}) {
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
-  const [printingFilter, setPrintingFilter] = useState<string>("all");
+  const [printingFilter, setPrintingFilter] = useState<string>(
+    initialPrintingId || "all"
+  );
 
   if (prices.length === 0) {
     return (
@@ -68,11 +76,10 @@ export default function PriceTable({ prices }: { prices: RetailerPrice[] }) {
               <button
                 key={opt.value}
                 onClick={() => setStockFilter(opt.value)}
-                className={`px-3 py-1.5 text-xs transition ${
-                  stockFilter === opt.value
+                className={`px-3 py-1.5 text-xs transition ${stockFilter === opt.value
                     ? "bg-red-600 text-white"
                     : "bg-gray-800 text-gray-300 hover:bg-gray-700"
-                }`}
+                  }`}
               >
                 {opt.label}
               </button>

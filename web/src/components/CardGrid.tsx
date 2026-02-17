@@ -44,6 +44,11 @@ export default function CardGrid({ cards }: { cards: Card[] }) {
                   Pitch: {card.pitch}
                 </span>
               )}
+              {card.lowest_price != null && (
+                <span className="text-xs font-bold text-green-400 ml-auto">
+                  ${card.lowest_price.toFixed(2)}
+                </span>
+              )}
             </div>
           </div>
         </Link>
