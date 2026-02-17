@@ -82,10 +82,17 @@ export function FoilingBadge({
 }) {
   if (!foiling && !foilingName) return null;
 
-  const displayName = foilingName || foiling || "";
+  // Abbreviation mapping: S→NF, R→RF, C→CF, G→GCF
+  const foilingAbbrev: Record<string, string> = {
+    S: "NF",
+    R: "RF",
+    C: "CF",
+    G: "GCF",
+  };
 
-  // Map foiling IDs / names to distinct visual styles
-  // S = Standard, R = Rainbow Foil, C = Cold Foil, G = Gold Cold Foil
+  const displayName = foilingAbbrev[foiling || ""] || foilingName || foiling || "";
+
+  // Map foiling IDs to distinct visual styles
   const foilingStyles: Record<string, { classes: string; icon: string }> = {
     S: {
       classes: "bg-gray-700 text-gray-300",
@@ -93,15 +100,15 @@ export function FoilingBadge({
     },
     R: {
       classes: "bg-gradient-to-r from-pink-600 via-purple-500 to-blue-500 text-white",
-      icon: "\u2728", // sparkles
+      icon: "\u2728",
     },
     C: {
       classes: "bg-gradient-to-r from-cyan-600 to-blue-700 text-cyan-100",
-      icon: "\u2744\uFE0F", // snowflake
+      icon: "\u2744\uFE0F",
     },
     G: {
       classes: "bg-gradient-to-r from-yellow-500 to-amber-600 text-yellow-100",
-      icon: "\u2B50", // star
+      icon: "\u2B50",
     },
   };
 

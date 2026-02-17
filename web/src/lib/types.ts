@@ -66,6 +66,8 @@ export interface PriceHistoryPoint {
   in_stock: boolean;
   retailer_slug: string;
   retailer_name: string;
+  printing_unique_id: string;
+  foiling: string | null;
 }
 
 export interface DealItem {
