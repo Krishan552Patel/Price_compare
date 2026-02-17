@@ -184,11 +184,13 @@ export async function getPriceHistory(
 ): Promise<PriceHistoryPoint[]> {
   const result = await db.execute({
     sql: `SELECT ph.scraped_date, ph.price_cad, ph.in_stock,
-           ph.retailer_slug, ret.name as retailer_name
+           ph.retailer_slug, ret.name as retailer_name,
+           ph.printing_unique_id, p.foiling
          FROM price_history ph
          JOIN retailers ret ON ph.retailer_slug = ret.slug
          JOIN printings p ON ph.printing_unique_id = p.unique_id
          WHERE p.card_unique_id = ?
+           AND ph.in_stock = 1
          ORDER BY ph.scraped_date ASC`,
     args: [cardUniqueId],
   });
@@ -199,6 +201,8 @@ export async function getPriceHistory(
     in_stock: Boolean(row.in_stock),
     retailer_slug: row.retailer_slug as string,
     retailer_name: row.retailer_name as string,
+    printing_unique_id: row.printing_unique_id as string,
+    foiling: row.foiling as string | null,
   }));
 }
 

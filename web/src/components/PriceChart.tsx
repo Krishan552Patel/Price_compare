@@ -15,8 +15,30 @@ import type { PriceHistoryPoint } from "@/lib/types";
 
 interface ChartDataPoint {
   date: string;
-  [retailer: string]: string | number | null;
+  [key: string]: string | number | null;
 }
+
+// Foiling abbreviation mapping (same as Badge.tsx)
+const FOILING_ABBREV: Record<string, string> = {
+  S: "NF",
+  R: "RF",
+  C: "CF",
+  G: "GCF",
+};
+
+const RETAILER_NAMES: Record<string, string> = {
+  invasion: "Invasion",
+  gobelin: "Gobelin",
+  etb: "ETB",
+};
+
+// Stroke dash patterns to visually distinguish foiling variants
+const FOILING_DASH: Record<string, string | undefined> = {
+  S: undefined,       // solid for non-foil
+  R: "6 3",           // dashed for rainbow foil
+  C: "2 2",           // dotted for cold foil
+  G: "8 3 2 3",       // dash-dot for gold cold foil
+};
 
 export default function PriceChart({
   cardUniqueId,
@@ -24,7 +46,10 @@ export default function PriceChart({
   cardUniqueId: string;
 }) {
   const [data, setData] = useState<ChartDataPoint[]>([]);
-  const [retailers, setRetailers] = useState<string[]>([]);
+  const [seriesKeys, setSeriesKeys] = useState<string[]>([]);
+  const [seriesLabels, setSeriesLabels] = useState<Record<string, string>>({});
+  const [seriesFoiling, setSeriesFoiling] = useState<Record<string, string>>({});
+  const [seriesRetailer, setSeriesRetailer] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -40,17 +65,32 @@ export default function PriceChart({
           return;
         }
 
-        // Pivot: group by date, one column per retailer
+        // Pivot: group by date, one column per retailer+foiling combo
         const dateMap = new Map<string, ChartDataPoint>();
-        const retailerSet = new Set<string>();
+        const keySet = new Set<string>();
+        const labels: Record<string, string> = {};
+        const foilings: Record<string, string> = {};
+        const retailers: Record<string, string> = {};
 
         for (const point of points) {
-          retailerSet.add(point.retailer_slug);
+          // Composite key: retailer_slug + foiling (e.g., "invasion_R", "gobelin_S")
+          const foiling = point.foiling || "S";
+          const key = `${point.retailer_slug}_${foiling}`;
+
+          keySet.add(key);
+
+          // Build display label: "Invasion RF", "Gobelin NF", etc.
+          const retailerLabel = RETAILER_NAMES[point.retailer_slug] || point.retailer_name;
+          const foilingLabel = FOILING_ABBREV[foiling] || foiling;
+          labels[key] = `${retailerLabel} ${foilingLabel}`;
+          foilings[key] = foiling;
+          retailers[key] = point.retailer_slug;
+
           if (!dateMap.has(point.scraped_date)) {
             dateMap.set(point.scraped_date, { date: point.scraped_date });
           }
           const entry = dateMap.get(point.scraped_date)!;
-          entry[point.retailer_slug] = point.price_cad;
+          entry[key] = point.price_cad;
         }
 
         const sorted = Array.from(dateMap.values()).sort(
@@ -58,7 +98,10 @@ export default function PriceChart({
         );
 
         setData(sorted);
-        setRetailers(Array.from(retailerSet));
+        setSeriesKeys(Array.from(keySet));
+        setSeriesLabels(labels);
+        setSeriesFoiling(foilings);
+        setSeriesRetailer(retailers);
       } catch {
         // ignore
       } finally {
@@ -85,12 +128,6 @@ export default function PriceChart({
     );
   }
 
-  const retailerNames: Record<string, string> = {
-    invasion: "Invasion",
-    gobelin: "Gobelin",
-    etb: "ETB",
-  };
-
   return (
     <ResponsiveContainer width="100%" height={300}>
       <LineChart data={data}>
@@ -114,19 +151,20 @@ export default function PriceChart({
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           formatter={(value: any, name: any) => [
             `$${Number(value).toFixed(2)}`,
-            retailerNames[name as string] || name,
+            seriesLabels[name as string] || name,
           ]}
         />
         <Legend
-          formatter={(value: string) => retailerNames[value] || value}
+          formatter={(value: string) => seriesLabels[value] || value}
         />
-        {retailers.map((slug) => (
+        {seriesKeys.map((key) => (
           <Line
-            key={slug}
+            key={key}
             type="monotone"
-            dataKey={slug}
-            stroke={getRetailerColor(slug)}
+            dataKey={key}
+            stroke={getRetailerColor(seriesRetailer[key] || key)}
             strokeWidth={2}
+            strokeDasharray={FOILING_DASH[seriesFoiling[key] || "S"]}
             dot={false}
             connectNulls
           />
