@@ -72,3 +72,50 @@ export function PitchDot({ pitch }: { pitch: string | null }) {
   if (!color) return null;
   return <span className={`inline-block w-3 h-3 rounded-full ${color}`} />;
 }
+
+export function FoilingBadge({
+  foiling,
+  foilingName,
+}: {
+  foiling: string | null;
+  foilingName: string | null;
+}) {
+  if (!foiling && !foilingName) return null;
+
+  const displayName = foilingName || foiling || "";
+
+  // Map foiling IDs / names to distinct visual styles
+  // S = Standard, R = Rainbow Foil, C = Cold Foil, G = Gold Cold Foil
+  const foilingStyles: Record<string, { classes: string; icon: string }> = {
+    S: {
+      classes: "bg-gray-700 text-gray-300",
+      icon: "",
+    },
+    R: {
+      classes: "bg-gradient-to-r from-pink-600 via-purple-500 to-blue-500 text-white",
+      icon: "\u2728", // sparkles
+    },
+    C: {
+      classes: "bg-gradient-to-r from-cyan-600 to-blue-700 text-cyan-100",
+      icon: "\u2744\uFE0F", // snowflake
+    },
+    G: {
+      classes: "bg-gradient-to-r from-yellow-500 to-amber-600 text-yellow-100",
+      icon: "\u2B50", // star
+    },
+  };
+
+  const style = foilingStyles[foiling || ""] || {
+    classes: "bg-gray-700 text-gray-300",
+    icon: "",
+  };
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${style.classes}`}
+    >
+      {style.icon && <span>{style.icon}</span>}
+      {displayName}
+    </span>
+  );
+}

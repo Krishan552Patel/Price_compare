@@ -48,6 +48,7 @@ export default async function CardsPage({
   const query = params.q;
   const set = params.set;
   const rarity = params.rarity;
+  const foiling = params.foiling;
   const color = params.color;
   const type = params.type;
   const sort = params.sort || "name_asc";
@@ -63,7 +64,7 @@ export default async function CardsPage({
 
   let cards: Card[] = [];
   let total = 0;
-  let filters: any = { sets: [], rarities: [], colors: [], classes: [] };
+  let filters: any = { sets: [], rarities: [], foilings: [], colors: [], classes: [] };
   let errorMsg = "";
 
   try {
@@ -72,6 +73,7 @@ export default async function CardsPage({
         query,
         set,
         rarity,
+        foiling,
         color,
         type,
         page,
@@ -80,7 +82,7 @@ export default async function CardsPage({
         maxPrice,
         inStock,
         sort,
-        groupByPrinting: !!query || showPrintings,
+        groupByPrinting: !!query || showPrintings || !!foiling,
       }),
       getFilterOptions(),
     ]);
@@ -93,13 +95,13 @@ export default async function CardsPage({
     console.error("Error loading cards:", err);
     errorMsg = err.message || "Unknown error";
     // Fallback filters to prevent sidebar crash
-    filters = { sets: [], rarities: [], colors: [], classes: [] };
+    filters = { sets: [], rarities: [], foilings: [], colors: [], classes: [] };
   }
 
   const totalPages = Math.ceil(total / pageSize);
 
   // Count active filters
-  const filterCount = [set, rarity, color, type, inStock, showPrintings, minPrice, maxPrice]
+  const filterCount = [set, rarity, foiling, color, type, inStock, showPrintings, minPrice, maxPrice]
     .filter(Boolean).length;
 
   // Build base URL for pagination
@@ -107,6 +109,7 @@ export default async function CardsPage({
   if (query) baseParams.set("q", query);
   if (set) baseParams.set("set", set);
   if (rarity) baseParams.set("rarity", rarity);
+  if (foiling) baseParams.set("foiling", foiling);
   if (color) baseParams.set("color", color);
   if (type) baseParams.set("type", type);
   if (sort && sort !== "name_asc") baseParams.set("sort", sort);
@@ -138,6 +141,7 @@ export default async function CardsPage({
           filterCount={filterCount}
           currentSet={set}
           currentRarity={rarity}
+          currentFoiling={foiling}
           currentColor={color}
           currentType={type}
           currentQuery={query}
