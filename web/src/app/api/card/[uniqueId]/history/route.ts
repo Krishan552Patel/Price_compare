@@ -7,5 +7,13 @@ export async function GET(
 ) {
   const { uniqueId } = await params;
   const history = await getPriceHistory(uniqueId);
-  return NextResponse.json(history);
+  
+  return NextResponse.json(history, {
+    headers: {
+      // History changes less frequently - cache for 5 minutes
+      "Cache-Control": "public, s-maxage=300, stale-while-revalidate=900",
+      "CDN-Cache-Control": "public, s-maxage=300, stale-while-revalidate=900",
+      "Vercel-CDN-Cache-Control": "public, s-maxage=300, stale-while-revalidate=900",
+    },
+  });
 }
