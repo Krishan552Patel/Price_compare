@@ -44,6 +44,15 @@ SKIP_PATTERNS = [
     re.compile(r'starter deck', re.IGNORECASE),
 ]
 
+# Condition patterns - order matters (most specific first)
+CONDITION_PATTERNS = [
+    (re.compile(r'\b(?:damaged|dmg)\b', re.IGNORECASE), 'DMG'),
+    (re.compile(r'\b(?:heavily[\s-]?played|hp)\b', re.IGNORECASE), 'HP'),
+    (re.compile(r'\b(?:moderately[\s-]?played|mp)\b', re.IGNORECASE), 'MP'),
+    (re.compile(r'\b(?:lightly[\s-]?played|lp|slightly[\s-]?played|sp)\b', re.IGNORECASE), 'LP'),
+    (re.compile(r'\b(?:near[\s-]?mint|nm|mint)\b', re.IGNORECASE), 'NM'),
+]
+
 
 def log(msg=""):
     """Print to stderr so progress is visible even when stdout is piped to a file."""
@@ -125,7 +134,18 @@ def fetch_all_products(name, base_url):
     return all_products
 
 
-def parse_shopify_product(product):
+def parse_condition(title, tags, variant_title=""):
+    """Extract card condition from product data. Default to NM if not found."""
+    search_text = f"{title} {variant_title} {' '.join(tags)}"
+    
+    for pattern, condition in CONDITION_PATTERNS:
+        if pattern.search(search_text):
+            return condition
+    
+    return 'NM'
+
+
+def parse_shopify_product(product, variant_title=""):
     title = product.get("title", "")
     tags = product.get("tags", [])
     variants = product.get("variants", [])
@@ -136,6 +156,7 @@ def parse_shopify_product(product):
         "card_id": None,
         "foiling": None,
         "edition": None,
+        "condition": parse_condition(title, tags, variant_title),
     }
 
     # === FOILING ===
