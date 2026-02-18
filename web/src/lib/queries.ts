@@ -5,9 +5,9 @@ import type {
   Printing,
   RetailerPrice,
   PriceHistoryPoint,
-  DealItem,
   FilterOptions,
   SearchResult,
+  CardCondition,
 } from "./types";
 
 // ============================================================
@@ -19,11 +19,14 @@ export async function searchCards(
   limit: number = 8
 ): Promise<SearchResult[]> {
   const result = await db.execute({
-    sql: `SELECT c.unique_id, c.name, c.type_text,
+    sql: `SELECT DISTINCT c.unique_id, c.name, c.type_text,
            (SELECT p.image_url FROM printings p WHERE p.card_unique_id = c.unique_id
             AND p.image_url IS NOT NULL LIMIT 1) as image_url
          FROM cards c
+         JOIN printings p ON p.card_unique_id = c.unique_id
+         JOIN retailer_products rp ON rp.printing_unique_id = p.unique_id
          WHERE c.name LIKE ?
+           AND rp.in_stock = 1
          ORDER BY c.name
          LIMIT ?`,
     args: [`%${query}%`, limit],
@@ -130,14 +133,17 @@ export async function getCardPrintings(
 // ============================================================
 
 export async function getCardPrices(
-  cardUniqueId: string
+  cardUniqueId: string,
+  inStockOnly: boolean = true
 ): Promise<RetailerPrice[]> {
+  const stockFilter = inStockOnly ? "AND rp.in_stock = 1" : "";
+  
   const result = await db.execute({
     sql: `SELECT rp.retailer_slug, ret.name as retailer_name,
            rp.product_title, rp.variant_title,
            rp.price_cad, rp.compare_at_price_cad,
            rp.in_stock, rp.product_url, rp.updated_at,
-           rp.printing_unique_id,
+           rp.printing_unique_id, rp.condition,
            p.card_id, p.foiling, p.edition, p.rarity,
            f.name as foiling_name,
            e.name as edition_name,
@@ -150,8 +156,8 @@ export async function getCardPrices(
          LEFT JOIN editions e ON p.edition = e.unique_id
          LEFT JOIN rarities r ON p.rarity = r.unique_id
          LEFT JOIN sets s ON p.set_id = s.set_code
-         WHERE p.card_unique_id = ?
-         ORDER BY rp.price_cad ASC`,
+         WHERE p.card_unique_id = ? ${stockFilter}
+         ORDER BY rp.in_stock DESC, rp.price_cad ASC`,
     args: [cardUniqueId],
   });
 
@@ -175,6 +181,7 @@ export async function getCardPrices(
     rarity: row.rarity as string | null,
     rarity_name: row.rarity_name as string | null,
     set_name: row.set_name as string | null,
+    condition: (row.condition as CardCondition) || 'NM',
     updated_at: row.updated_at as string,
   }));
 }
@@ -185,7 +192,7 @@ export async function getPriceHistory(
   const result = await db.execute({
     sql: `SELECT ph.scraped_date, ph.price_cad, ph.in_stock,
            ph.retailer_slug, ret.name as retailer_name,
-           ph.printing_unique_id, p.foiling
+           ph.printing_unique_id, p.card_id, p.foiling, p.edition, ph.condition
          FROM price_history ph
          JOIN retailers ret ON ph.retailer_slug = ret.slug
          JOIN printings p ON ph.printing_unique_id = p.unique_id
@@ -202,81 +209,10 @@ export async function getPriceHistory(
     retailer_slug: row.retailer_slug as string,
     retailer_name: row.retailer_name as string,
     printing_unique_id: row.printing_unique_id as string,
-    foiling: row.foiling as string | null,
-  }));
-}
-
-// ============================================================
-// DEALS
-// ============================================================
-
-export async function getDeals(params: {
-  limit?: number;
-  retailer?: string;
-  minDiscount?: number;
-  sort?: string;
-} = {}): Promise<DealItem[]> {
-  const { limit = 50, retailer, minDiscount, sort = "discount_desc" } = params;
-
-  const conditions: string[] = [
-    "rp.in_stock = 1",
-    "rp.compare_at_price_cad IS NOT NULL",
-    "rp.compare_at_price_cad > rp.price_cad",
-    "rp.price_cad > 0",
-  ];
-  const args: (string | number)[] = [];
-
-  if (retailer) {
-    conditions.push("rp.retailer_slug = ?");
-    args.push(retailer);
-  }
-  if (minDiscount) {
-    conditions.push(
-      "ROUND((1.0 - rp.price_cad / rp.compare_at_price_cad) * 100, 1) >= ?"
-    );
-    args.push(minDiscount);
-  }
-
-  const sortMap: Record<string, string> = {
-    discount_desc: "discount_pct DESC",
-    price_asc: "rp.price_cad ASC",
-    price_desc: "rp.price_cad DESC",
-  };
-  const orderBy = sortMap[sort] || sortMap.discount_desc;
-
-  args.push(limit);
-
-  const result = await db.execute({
-    sql: `SELECT c.name as card_name, p.card_id, p.image_url,
-           c.unique_id as card_unique_id,
-           rp.retailer_slug, ret.name as retailer_name,
-           rp.price_cad, rp.compare_at_price_cad,
-           ROUND((1.0 - rp.price_cad / rp.compare_at_price_cad) * 100, 1) as discount_pct,
-           rp.product_url, p.foiling, p.edition, p.rarity
-         FROM retailer_products rp
-         JOIN retailers ret ON rp.retailer_slug = ret.slug
-         JOIN printings p ON rp.printing_unique_id = p.unique_id
-         JOIN cards c ON p.card_unique_id = c.unique_id
-         WHERE ${conditions.join(" AND ")}
-         ORDER BY ${orderBy}
-         LIMIT ?`,
-    args,
-  });
-
-  return result.rows.map((row) => ({
-    card_name: row.card_name as string,
     card_id: row.card_id as string,
-    image_url: row.image_url as string | null,
-    card_unique_id: row.card_unique_id as string,
-    retailer_slug: row.retailer_slug as string,
-    retailer_name: row.retailer_name as string,
-    price_cad: Number(row.price_cad),
-    compare_at_price_cad: Number(row.compare_at_price_cad),
-    discount_pct: Number(row.discount_pct),
-    product_url: row.product_url as string,
     foiling: row.foiling as string | null,
     edition: row.edition as string | null,
-    rarity: row.rarity as string | null,
+    condition: (row.condition as CardCondition) || 'NM',
   }));
 }
 

@@ -39,6 +39,16 @@ export interface Printing {
   flavor_text: string | null;
 }
 
+export type CardCondition = 'NM' | 'LP' | 'MP' | 'HP' | 'DMG';
+
+export const CONDITION_LABELS: Record<CardCondition, string> = {
+  NM: 'Near Mint',
+  LP: 'Lightly Played',
+  MP: 'Moderately Played',
+  HP: 'Heavily Played',
+  DMG: 'Damaged',
+};
+
 export interface RetailerPrice {
   retailer_slug: string;
   retailer_name: string;
@@ -57,6 +67,7 @@ export interface RetailerPrice {
   rarity: string | null;
   rarity_name: string | null;
   set_name: string | null;
+  condition: CardCondition;
   updated_at: string;
 }
 
@@ -67,24 +78,12 @@ export interface PriceHistoryPoint {
   retailer_slug: string;
   retailer_name: string;
   printing_unique_id: string;
-  foiling: string | null;
-}
-
-export interface DealItem {
-  card_name: string;
   card_id: string;
-  image_url: string | null;
-  card_unique_id: string;
-  retailer_slug: string;
-  retailer_name: string;
-  price_cad: number;
-  compare_at_price_cad: number;
-  discount_pct: number;
-  product_url: string;
   foiling: string | null;
   edition: string | null;
-  rarity: string | null;
+  condition: CardCondition;
 }
+
 
 export interface SetInfo {
   set_code: string;

@@ -22,7 +22,7 @@ export default async function CardDetailPage({
 
   // 1. Try to find the card directly
   let card = await getCard(uniqueId);
-  let preSelectedPrintingId: string | undefined = undefined;
+  let preSelectedPrintingId: string | undefined;
 
   // 2. If not found, check if it's a printing ID
   if (!card) {
@@ -37,10 +37,24 @@ export default async function CardDetailPage({
   if (!card) notFound();
 
   // 4. Fetch related data using the CANONICAL card ID
+  // Fetch ALL prices (including out of stock) so user can see full picture
   const [printings, prices] = await Promise.all([
     getCardPrintings(card.unique_id),
-    getCardPrices(card.unique_id),
+    getCardPrices(card.unique_id, false), // false = include out of stock
   ]);
+
+  // If a specific printing was requested but has no in-stock prices,
+  // try to find a printing that DOES have in-stock prices
+  const inStockPrices = prices.filter((p) => p.in_stock);
+  if (preSelectedPrintingId) {
+    const hasInStockForSelected = inStockPrices.some(
+      (p) => p.printing_unique_id === preSelectedPrintingId
+    );
+    if (!hasInStockForSelected && inStockPrices.length > 0) {
+      // Auto-select the first printing with in-stock prices
+      preSelectedPrintingId = inStockPrices[0].printing_unique_id;
+    }
+  }
 
   // Extract unique artists from all printings
   const artists = Array.from(

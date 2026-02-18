@@ -56,6 +56,15 @@ SKIP_PATTERNS = [
     re.compile(r'starter deck', re.IGNORECASE),
 ]
 
+# Condition patterns - order matters (most specific first)
+CONDITION_PATTERNS = [
+    (re.compile(r'\b(?:damaged|dmg)\b', re.IGNORECASE), 'DMG'),
+    (re.compile(r'\b(?:heavily[\s-]?played|hp)\b', re.IGNORECASE), 'HP'),
+    (re.compile(r'\b(?:moderately[\s-]?played|mp)\b', re.IGNORECASE), 'MP'),
+    (re.compile(r'\b(?:lightly[\s-]?played|lp|slightly[\s-]?played|sp)\b', re.IGNORECASE), 'LP'),
+    (re.compile(r'\b(?:near[\s-]?mint|nm|mint)\b', re.IGNORECASE), 'NM'),
+]
+
 BATCH_SIZE = 100
 
 
@@ -136,17 +145,33 @@ def fetch_all_products(name, base_url):
     return all_products
 
 
-def parse_shopify_product(product):
+def parse_condition(title, tags, variant_title=""):
+    """Extract card condition from product data. Default to NM if not found."""
+    # Combine all text sources for searching
+    search_text = f"{title} {variant_title} {' '.join(tags)}"
+    
+    for pattern, condition in CONDITION_PATTERNS:
+        if pattern.search(search_text):
+            return condition
+    
+    # Default to Near Mint if no condition specified
+    return 'NM'
+
+
+def parse_shopify_product(product, variant=None):
+    """Parse product info. If variant provided, also parse variant-specific condition."""
     title = product.get("title", "")
     tags = product.get("tags", [])
     variants = product.get("variants", [])
     first_sku = variants[0].get("sku", "") if variants else ""
+    variant_title = variant.get("title", "") if variant else ""
 
     info = {
         "card_name": None,
         "card_id": None,
         "foiling": None,
         "edition": None,
+        "condition": parse_condition(title, tags, variant_title),
     }
 
     title_lower = title.lower()
@@ -253,19 +278,38 @@ async def main():
         # --- Step 2: Load card index ---
         log("\n[2/4] Loading card index from Turso...")
         result = await client.execute(
-            "SELECT p.unique_id, p.card_id "
+            "SELECT p.unique_id, p.card_id, p.foiling, p.edition, f.name as foiling_name, e.name as edition_name "
             "FROM printings p "
+            "LEFT JOIN foilings f ON p.foiling = f.unique_id "
+            "LEFT JOIN editions e ON p.edition = e.unique_id "
             "WHERE p.card_id IS NOT NULL"
         )
 
+        # Index by card_id -> (foiling, edition) -> printing_uid
+        # Foiling mapping: S=Normal, R=Rainbow Foil, C=Cold Foil, G=Gold Cold Foil
+        # Edition mapping: A=Alpha/1st, U=Unlimited, N=Normal
         card_index = {}
         for row in result.rows:
-            printing_uid, card_id = row[0], row[1]
+            printing_uid = row[0]
+            card_id = row[1]
+            foiling_id = row[2] or 'S'
+            edition_id = row[3] or 'N'
+            foiling_name = row[4]
+            edition_name = row[5]
+            
             if card_id not in card_index:
-                card_index[card_id] = []
-            card_index[card_id].append(printing_uid)
+                card_index[card_id] = {}
+            
+            # Create composite key: foiling_edition (e.g., "R_A" for Rainbow Foil 1st Edition)
+            key = f"{foiling_id}_{edition_id}"
+            card_index[card_id][key] = printing_uid
+            
+            # Also store just by foiling for fallback
+            if foiling_id not in card_index[card_id]:
+                card_index[card_id][foiling_id] = printing_uid
 
-        log(f"  Loaded {len(card_index)} unique card_ids ({sum(len(v) for v in card_index.values())} printings)")
+        total_printings = sum(len(v) for v in card_index.values())
+        log(f"  Loaded {len(card_index)} unique card_ids ({total_printings} printing variants)")
 
         if len(card_index) == 0:
             log("\n  ERROR: Card index is empty! Run ingest.py first.")
@@ -300,11 +344,45 @@ async def main():
 
                 parsed = parse_shopify_product(product)
                 card_id = parsed["card_id"]
+                parsed_foiling = parsed["foiling"]  # e.g., "Cold Foil", "Rainbow Foil", "Normal"
+                parsed_edition = parsed["edition"]  # e.g., "1st Edition", "Unlimited", "Regular"
+
+                # Map parsed foiling names to database foiling IDs
+                foiling_map = {
+                    "Normal": "S",
+                    "Rainbow Foil": "R",
+                    "Cold Foil": "C",
+                    "Gold Cold Foil": "G",
+                }
+                foiling_key = foiling_map.get(parsed_foiling, "S")
+                
+                # Map parsed edition names to database edition IDs
+                edition_map = {
+                    "1st Edition": "A",  # Alpha
+                    "Unlimited": "U",
+                    "Regular": "N",
+                }
+                edition_key = edition_map.get(parsed_edition, "N")
 
                 printing_uid = None
                 if card_id and card_id in card_index:
-                    printing_uid = card_index[card_id][0]
-                    matched += 1
+                    variants = card_index[card_id]
+                    
+                    # Try exact foiling+edition match first
+                    composite_key = f"{foiling_key}_{edition_key}"
+                    if composite_key in variants:
+                        printing_uid = variants[composite_key]
+                    # Try just foiling match
+                    elif foiling_key in variants:
+                        printing_uid = variants[foiling_key]
+                    # Fallback: use any available printing for this card_id
+                    elif variants:
+                        printing_uid = next(iter(variants.values()))
+                    
+                    if printing_uid:
+                        matched += 1
+                    else:
+                        unmatched += 1
                 elif card_id:
                     unmatched += 1
 
@@ -319,6 +397,9 @@ async def main():
                     compare_price = variant.get("compare_at_price")
                     available = 1 if variant.get("available", True) else 0
                     sku = variant.get("sku", "")
+                    
+                    # Parse condition from variant-specific data
+                    condition = parse_condition(title, product.get("tags", []), variant_title)
 
                     try:
                         price_cad = float(price) if price else 0.0
@@ -334,8 +415,8 @@ async def main():
                         "INSERT INTO retailer_products "
                         "(retailer_slug, shopify_product_id, shopify_variant_id, "
                         "product_title, variant_title, price_cad, compare_at_price_cad, "
-                        "in_stock, sku, product_url, printing_unique_id, raw_tags, updated_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) "
+                        "in_stock, sku, product_url, printing_unique_id, raw_tags, condition, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) "
                         "ON CONFLICT(retailer_slug, shopify_variant_id) DO UPDATE SET "
                         "product_title=excluded.product_title, "
                         "variant_title=excluded.variant_title, "
@@ -346,25 +427,27 @@ async def main():
                         "product_url=excluded.product_url, "
                         "printing_unique_id=excluded.printing_unique_id, "
                         "raw_tags=excluded.raw_tags, "
+                        "condition=excluded.condition, "
                         "updated_at=datetime('now')",
                         [slug, product_id, variant_id, title, variant_title,
                          price_cad, compare_cad, available, sku, product_url,
-                         printing_uid, raw_tags]
+                         printing_uid, raw_tags, condition]
                     ))
 
                     batch.append(libsql_client.Statement(
                         "INSERT INTO price_history "
                         "(retailer_slug, shopify_variant_id, product_title, "
                         "variant_title, price_cad, in_stock, printing_unique_id, "
-                        "scraped_date, scraped_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) "
+                        "condition, scraped_date, scraped_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) "
                         "ON CONFLICT(retailer_slug, shopify_variant_id, scraped_date) "
                         "DO UPDATE SET "
                         "price_cad=excluded.price_cad, "
                         "in_stock=excluded.in_stock, "
+                        "condition=excluded.condition, "
                         "scraped_at=datetime('now')",
                         [slug, variant_id, title, variant_title,
-                         price_cad, available, printing_uid, today]
+                         price_cad, available, printing_uid, condition, today]
                     ))
 
                     variants_scraped += 1

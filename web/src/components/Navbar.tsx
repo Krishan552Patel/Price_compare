@@ -12,7 +12,6 @@ export default function Navbar() {
 
   const navLinks = [
     { href: "/cards", label: "Cards" },
-    { href: "/deals", label: "Deals" },
   ];
 
   function isActive(href: string) {

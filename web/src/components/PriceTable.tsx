@@ -3,9 +3,10 @@
 import { useState } from "react";
 import type { RetailerPrice } from "@/lib/types";
 import { formatPrice, getRetailerColor } from "@/lib/utils";
-import { StockBadge, FoilingBadge } from "./Badge";
+import { StockBadge, FoilingBadge, ConditionBadge } from "./Badge";
 
-type StockFilter = "all" | "in_stock" | "out_of_stock";
+type StockFilter = "all" | "in_stock";
+type ConditionFilter = "all" | "NM" | "LP" | "MP" | "HP" | "DMG";
 
 export default function PriceTable({
   prices,
@@ -14,9 +15,17 @@ export default function PriceTable({
   prices: RetailerPrice[];
   initialPrintingId?: string;
 }) {
-  const [stockFilter, setStockFilter] = useState<StockFilter>("all");
+  // Check if the initial printing has any in-stock items
+  const initialHasStock = initialPrintingId
+    ? prices.some((p) => p.printing_unique_id === initialPrintingId && p.in_stock)
+    : false;
+
+  // Default to showing only in-stock items
+  const [stockFilter, setStockFilter] = useState<StockFilter>("in_stock");
+  const [conditionFilter, setConditionFilter] = useState<ConditionFilter>("all");
+  // If initial printing has no stock, default to "all" printings
   const [printingFilter, setPrintingFilter] = useState<string>(
-    initialPrintingId || "all"
+    initialPrintingId && initialHasStock ? initialPrintingId : "all"
   );
 
   if (prices.length === 0) {
@@ -50,8 +59,9 @@ export default function PriceTable({
   // Apply filters
   const filtered = prices.filter((p) => {
     if (stockFilter === "in_stock" && !p.in_stock) return false;
-    if (stockFilter === "out_of_stock" && p.in_stock) return false;
     if (printingFilter !== "all" && p.printing_unique_id !== printingFilter)
+      return false;
+    if (conditionFilter !== "all" && p.condition !== conditionFilter)
       return false;
     return true;
   });
@@ -68,9 +78,8 @@ export default function PriceTable({
           <div className="flex rounded-lg overflow-hidden border border-gray-700">
             {(
               [
-                { value: "all", label: "All" },
                 { value: "in_stock", label: "In Stock" },
-                { value: "out_of_stock", label: "Out of Stock" },
+                { value: "all", label: "All" },
               ] as const
             ).map((opt) => (
               <button
@@ -85,6 +94,23 @@ export default function PriceTable({
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Condition Filter */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Condition:</span>
+          <select
+            value={conditionFilter}
+            onChange={(e) => setConditionFilter(e.target.value as ConditionFilter)}
+            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white"
+          >
+            <option value="all">All Conditions</option>
+            <option value="NM">Near Mint</option>
+            <option value="LP">Lightly Played</option>
+            <option value="MP">Moderately Played</option>
+            <option value="HP">Heavily Played</option>
+            <option value="DMG">Damaged</option>
+          </select>
         </div>
 
         {/* Printing Filter */}
@@ -110,8 +136,7 @@ export default function PriceTable({
 
         {/* Result count */}
         <span className="text-xs text-gray-500 self-center ml-auto">
-          {filtered.length} of {prices.length} listing
-          {prices.length !== 1 ? "s" : ""}
+          {filtered.length} listing{filtered.length !== 1 ? "s" : ""}
         </span>
       </div>
 
@@ -128,8 +153,8 @@ export default function PriceTable({
                 <th className="text-left py-3 px-2">Store</th>
                 <th className="text-left py-3 px-2">Printing</th>
                 <th className="text-left py-3 px-2">Edition / Foiling</th>
+                <th className="text-center py-3 px-2">Condition</th>
                 <th className="text-right py-3 px-2">Price</th>
-                <th className="text-right py-3 px-2">Was</th>
                 <th className="text-center py-3 px-2">Stock</th>
                 <th className="text-right py-3 px-2"></th>
               </tr>
@@ -180,6 +205,9 @@ export default function PriceTable({
                         )}
                       </div>
                     </td>
+                    <td className="py-3 px-2 text-center">
+                      <ConditionBadge condition={price.condition} />
+                    </td>
                     <td className="py-3 px-2 text-right">
                       <span
                         className={`font-bold ${isCheapest ? "text-green-400" : "text-white"}`}
@@ -191,11 +219,6 @@ export default function PriceTable({
                           BEST
                         </span>
                       )}
-                    </td>
-                    <td className="py-3 px-2 text-right text-gray-500">
-                      {price.compare_at_price_cad
-                        ? formatPrice(price.compare_at_price_cad)
-                        : "—"}
                     </td>
                     <td className="py-3 px-2 text-center">
                       <StockBadge inStock={price.in_stock} />
