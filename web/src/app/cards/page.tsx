@@ -53,8 +53,8 @@ export default async function CardsPage({
   const type = params.type;
   const sort = params.sort || "name_asc";
   const density = params.density || "regular";
-  // Default to in-stock only, unless explicitly set to "false"
-  const inStock = params.inStock !== "false";
+  // Only filter to in-stock if explicitly requested
+  const inStock = params.inStock === "true";
   const showPrintings = params.showPrintings === "true";
   const rawMinPrice = params.minPrice ? parseFloat(params.minPrice) : undefined;
   const rawMaxPrice = params.maxPrice ? parseFloat(params.maxPrice) : undefined;
