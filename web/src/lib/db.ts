@@ -11,8 +11,8 @@ const db = {
     let paramIndex = 0;
     pgQuery = pgQuery.replace(/\?/g, () => `$${++paramIndex}`);
     
-    // Use sql.unsafe for dynamic queries with parameters
-    const rows = await sql(pgQuery as any, args as any);
+    // Use sql.query() for dynamic queries with parameters
+    const rows = await sql.query(pgQuery, args);
     return { rows };
   },
 };
