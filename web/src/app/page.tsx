@@ -2,7 +2,8 @@ import SearchBar from "@/components/SearchBar";
 import { getStats } from "@/lib/queries";
 import Link from "next/link";
 
-export const dynamic = "force-dynamic";
+// Revalidate every 5 minutes - stats don't change frequently
+export const revalidate = 300;
 
 export default async function HomePage() {
   let stats = { totalCards: 0, totalPrintings: 0, totalRetailerProducts: 0, retailers: 0 };

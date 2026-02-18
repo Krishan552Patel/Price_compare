@@ -220,7 +220,20 @@ export async function getPriceHistory(
 // BROWSE / FILTER
 // ============================================================
 
+// Cache for filter options (they rarely change)
+let filterOptionsCache: { data: FilterOptions | null; timestamp: number } = {
+  data: null,
+  timestamp: 0,
+};
+const FILTER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 export async function getFilterOptions(): Promise<FilterOptions> {
+  // Return cached data if still valid
+  const now = Date.now();
+  if (filterOptionsCache.data && now - filterOptionsCache.timestamp < FILTER_CACHE_TTL) {
+    return filterOptionsCache.data;
+  }
+
   const [setsResult, raritiesResult, foilingsResult, colorsResult, classesResult] =
     await Promise.all([
       db.execute({
@@ -254,7 +267,7 @@ export async function getFilterOptions(): Promise<FilterOptions> {
       }),
     ]);
 
-  return {
+  const result: FilterOptions = {
     sets: setsResult.rows.map((row) => ({
       set_code: row.set_code as string,
       name: row.name as string,
@@ -270,6 +283,10 @@ export async function getFilterOptions(): Promise<FilterOptions> {
     colors: colorsResult.rows.map((row) => row.color as string),
     classes: classesResult.rows.map((row) => row.type_text as string),
   };
+
+  // Update cache
+  filterOptionsCache = { data: result, timestamp: now };
+  return result;
 }
 
 export async function browseCards(params: {
