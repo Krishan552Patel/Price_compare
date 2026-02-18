@@ -1,9 +1,6 @@
-"use client";
-
-import { useState } from "react";
+import Link from "next/link";
 import CardImage from "./CardImage";
 import { PitchDot } from "./Badge";
-import CardLightbox from "./CardLightbox";
 import type { Card } from "@/lib/types";
 
 type Density = "few" | "regular" | "many" | "most";
@@ -22,7 +19,6 @@ export default function CardGrid({
   cards: Card[];
   density?: Density;
 }) {
-  const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const compact = density === "many" || density === "most";
 
   if (cards.length === 0) {
@@ -35,14 +31,13 @@ export default function CardGrid({
   }
 
   return (
-    <>
-      <div className={`grid ${densityClasses[density]} gap-3`}>
-        {cards.map((card) => (
-          <button
-            key={card.unique_id}
-            onClick={() => setSelectedCard(card)}
-            className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden hover:border-gray-600 transition group text-left"
-          >
+    <div className={`grid ${densityClasses[density]} gap-3`}>
+      {cards.map((card) => (
+        <Link
+          key={card.unique_id}
+          href={`/cards/${card.unique_id}`}
+          className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden hover:border-gray-600 transition group"
+        >
             <div className="aspect-[5/7] relative overflow-hidden">
               <CardImage
                 src={card.image_url}
@@ -81,16 +76,8 @@ export default function CardGrid({
                 </div>
               </div>
             )}
-          </button>
-        ))}
-      </div>
-
-      {selectedCard && (
-        <CardLightbox
-          card={selectedCard}
-          onClose={() => setSelectedCard(null)}
-        />
-      )}
-    </>
+        </Link>
+      ))}
+    </div>
   );
 }
