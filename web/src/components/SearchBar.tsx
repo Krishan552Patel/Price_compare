@@ -2,18 +2,20 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useCardSearch } from "@/hooks/useCardSearch";
 import type { SearchResult } from "@/lib/types";
 
 export default function SearchBar({ large = false }: { large?: boolean }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const router = useRouter();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<NodeJS.Timeout>(undefined);
+  
+  // Client-side search with Fuse.js - instant after initial load
+  const { search, isLoading: indexLoading, isReady } = useCardSearch();
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -36,29 +38,16 @@ export default function SearchBar({ large = false }: { large?: boolean }) {
   function handleChange(value: string) {
     setQuery(value);
 
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-
     if (value.length < 2) {
       setResults([]);
       setIsOpen(false);
       return;
     }
 
-    setLoading(true);
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const resp = await fetch(
-          `/api/search?q=${encodeURIComponent(value)}`
-        );
-        const data = await resp.json();
-        setResults(data);
-        setIsOpen(data.length > 0);
-      } catch {
-        setResults([]);
-      } finally {
-        setLoading(false);
-      }
-    }, 300);
+    // Instant local search - no debounce needed!
+    const searchResults = search(value);
+    setResults(searchResults);
+    setIsOpen(searchResults.length > 0);
   }
 
   const handleSubmit = useCallback(
@@ -138,7 +127,7 @@ export default function SearchBar({ large = false }: { large?: boolean }) {
               large ? "pl-11 pr-5 py-3 text-lg" : "pl-9 pr-3 py-2 text-sm"
             }`}
           />
-          {loading && (
+          {indexLoading && (
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
               <div className="w-4 h-4 border-2 border-gray-600 border-t-red-500 rounded-full animate-spin" />
             </div>
