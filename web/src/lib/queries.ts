@@ -392,32 +392,50 @@ export async function browseCards(params: {
     };
     const orderBy = sortMap[sort] || sortMap.name_asc;
 
-    // Main data query
+    // Main data query - optimized to avoid correlated subqueries
     let sql = "";
     if (groupByPrinting) {
       sql = `SELECT p.unique_id as printing_uid, c.name, c.color, c.pitch, c.types, c.type_text,
                p.image_url as image_url, p.set_id as set_id, p.rarity, p.foiling,
-               (SELECT s.name FROM sets s WHERE s.set_code = p.set_id) as set_name,
-               (SELECT MIN(rp2.price_cad) FROM retailer_products rp2
-                WHERE rp2.printing_unique_id = p.unique_id AND rp2.in_stock = 1) as lowest_price
+               s.name as set_name,
+               price_agg.lowest_price
              FROM cards c
-             ${joinClause}
+             JOIN printings p ON p.card_unique_id = c.unique_id
+             LEFT JOIN sets s ON p.set_id = s.set_code
+             LEFT JOIN (
+               SELECT printing_unique_id, MIN(price_cad) as lowest_price
+               FROM retailer_products WHERE in_stock = 1
+               GROUP BY printing_unique_id
+             ) price_agg ON price_agg.printing_unique_id = p.unique_id
+             ${priceStockJoin}
              ${whereClause}
              ORDER BY ${orderBy}
              LIMIT ? OFFSET ?`;
     } else {
-      sql = `SELECT DISTINCT c.unique_id, c.name, c.color, c.pitch, c.cost, c.power,
+      // For simple browse (no groupByPrinting), use a faster query
+      sql = `SELECT c.unique_id, c.name, c.color, c.pitch, c.cost, c.power,
                c.defense, c.health, c.intelligence, c.types, c.traits, c.card_keywords,
                c.functional_text, c.functional_text_plain, c.type_text,
                c.blitz_legal, c.cc_legal, c.commoner_legal, c.ll_legal,
-               (SELECT p2.image_url FROM printings p2 WHERE p2.card_unique_id = c.unique_id
-                AND p2.image_url IS NOT NULL LIMIT 1) as image_url,
-               (SELECT MIN(rp2.price_cad) FROM retailer_products rp2
-                JOIN printings p3 ON rp2.printing_unique_id = p3.unique_id
-                WHERE p3.card_unique_id = c.unique_id AND rp2.in_stock = 1) as lowest_price
+               img.image_url,
+               price_agg.lowest_price
              FROM cards c
-             ${joinClause}
+             LEFT JOIN (
+               SELECT card_unique_id, MIN(image_url) as image_url
+               FROM printings WHERE image_url IS NOT NULL
+               GROUP BY card_unique_id
+             ) img ON img.card_unique_id = c.unique_id
+             LEFT JOIN (
+               SELECT p.card_unique_id, MIN(rp.price_cad) as lowest_price
+               FROM retailer_products rp
+               JOIN printings p ON rp.printing_unique_id = p.unique_id
+               WHERE rp.in_stock = 1
+               GROUP BY p.card_unique_id
+             ) price_agg ON price_agg.card_unique_id = c.unique_id
+             ${needsPrintingJoin ? "JOIN printings p ON p.card_unique_id = c.unique_id" : ""}
+             ${priceStockJoin}
              ${whereClause}
+             ${needsPrintingJoin ? "GROUP BY c.unique_id" : ""}
              ORDER BY ${orderBy}
              LIMIT ? OFFSET ?`;
     }
