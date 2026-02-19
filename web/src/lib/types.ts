@@ -97,11 +97,12 @@ export interface FilterOptions {
   editions: { unique_id: string; name: string }[];
   colors: string[];
   classes: string[];       // type_text (Warrior, Wizard, etc.)
-  keywords: string[];      // card_keywords JSON array values
+  keywords: string[];      // card_keywords JSON array values (deduplicated, no trailing numbers)
   subtypes: string[];      // from types JSON array
   artists: string[];       // from printings.artists JSON array
   talents: string[];       // from traits JSON array matching talent list
   pitches: string[];       // distinct pitch values ("1","2","3")
+  heroes: string[];        // hero card names for specialization dropdown
 }
 
 export interface SearchResult {

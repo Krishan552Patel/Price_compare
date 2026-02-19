@@ -71,11 +71,11 @@ export default function PriceTable({
   return (
     <div>
       {/* Filters */}
-      <div className="flex flex-wrap gap-4 mb-4">
+      <div className="flex flex-wrap gap-4 mb-4 min-h-[40px] items-center">
         {/* Stock Filter */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">Stock:</span>
-          <div className="flex rounded-lg overflow-hidden border border-gray-700">
+          <span className="text-xs text-gray-400 w-10">Stock:</span>
+          <div className="flex rounded-lg overflow-hidden border border-gray-700 w-[140px]">
             {(
               [
                 { value: "in_stock", label: "In Stock" },
@@ -147,16 +147,16 @@ export default function PriceTable({
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-fixed">
             <thead>
               <tr className="border-b border-gray-700 text-gray-400">
-                <th className="text-left py-3 px-2">Store</th>
-                <th className="text-left py-3 px-2">Printing</th>
-                <th className="text-left py-3 px-2">Edition / Foiling</th>
-                <th className="text-center py-3 px-2">Condition</th>
-                <th className="text-right py-3 px-2">Price</th>
-                <th className="text-center py-3 px-2">Stock</th>
-                <th className="text-right py-3 px-2"></th>
+                <th className="text-left py-3 px-2 w-[15%]">Store</th>
+                <th className="text-left py-3 px-2 w-[15%]">Printing</th>
+                <th className="text-left py-3 px-2 w-[25%]">Edition / Foiling</th>
+                <th className="text-center py-3 px-2 w-[10%]">Condition</th>
+                <th className="text-right py-3 px-2 w-[12%]">Price</th>
+                <th className="text-center py-3 px-2 w-[10%]">Stock</th>
+                <th className="text-right py-3 px-2 w-[13%]"></th>
               </tr>
             </thead>
             <tbody>

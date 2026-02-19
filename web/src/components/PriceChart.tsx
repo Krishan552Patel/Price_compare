@@ -53,7 +53,8 @@ export default function PriceChart({
   const [timeRange, setTimeRange] = useState<TimeRange>("all");
   const [conditionFilter, setConditionFilter] = useState<ConditionFilter>("NM");
   const [printingFilter, setPrintingFilter] = useState<string>("all");
-  const [enabledRetailers, setEnabledRetailers] = useState<Set<string>>(new Set(["invasion", "gobelin", "etb"]));
+  const [enabledRetailers, setEnabledRetailers] = useState<Set<string>>(new Set());
+  const [retailersInitialized, setRetailersInitialized] = useState(false);
 
   useEffect(() => {
     async function fetchData() {
@@ -71,6 +72,15 @@ export default function PriceChart({
     }
     fetchData();
   }, [cardUniqueId]);
+
+  // Initialize enabled retailers from actual data (once)
+  useEffect(() => {
+    if (rawData.length > 0 && !retailersInitialized) {
+      const slugs = new Set(rawData.map((p) => p.retailer_slug));
+      setEnabledRetailers(slugs);
+      setRetailersInitialized(true);
+    }
+  }, [rawData, retailersInitialized]);
 
   // Get unique printings for filter dropdown
   const uniquePrintings = useMemo(() => {
@@ -143,10 +153,12 @@ export default function PriceChart({
       const foilingLabel = FOILING_ABBREV[foiling] || foiling;
       labels[key] = `${retailerLabel} ${point.card_id} ${foilingLabel}`;
 
-      if (!dateMap.has(point.scraped_date)) {
-        dateMap.set(point.scraped_date, { date: point.scraped_date });
+      // Normalize date to YYYY-MM-DD (handles full ISO timestamps)
+      const dateKey = point.scraped_date.split("T")[0];
+      if (!dateMap.has(dateKey)) {
+        dateMap.set(dateKey, { date: dateKey });
       }
-      const entry = dateMap.get(point.scraped_date)!;
+      const entry = dateMap.get(dateKey)!;
 
       // If multiple prices for same key on same day, use lowest
       const existing = entry[key] as number | null;

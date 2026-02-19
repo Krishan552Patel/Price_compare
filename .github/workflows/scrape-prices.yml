@@ -1,0 +1,44 @@
+name: Scrape Prices
+
+on:
+  schedule:
+    # 12:00 AM UTC = midnight
+    - cron: "0 0 * * *"
+    # 12:00 PM UTC = noon
+    - cron: "0 12 * * *"
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  scrape:
+    name: Scrape retailer prices
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scraper
+        env:
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+        run: |
+          echo "=== FAB Price Scrape @ $(date -u '+%Y-%m-%d %H:%M:%S UTC') ==="
+          python scrape_prices_neon.py 2>&1
+
+      - name: Upload scrape log as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrape-log-${{ github.run_id }}
+          path: scrape_output.log
+          if-no-files-found: ignore
+          retention-days: 14

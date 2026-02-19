@@ -325,6 +325,26 @@ async def main():
             log(f"\n--- {info['name']} ---")
             start_time = time.time()
 
+            # Load existing retailer_products state into memory to skip unchanged writes
+            existing = {}
+            existing_result = await client.execute(
+                "SELECT shopify_variant_id, price_cad, in_stock FROM retailer_products WHERE retailer_slug = ?",
+                [slug]
+            )
+            for row in existing_result.rows:
+                existing[str(row[0])] = (float(row[1]) if row[1] is not None else 0.0, int(row[2]) if row[2] is not None else 0)
+
+            # Load today's price_history entries to skip duplicate writes
+            history_today = set()
+            history_result = await client.execute(
+                "SELECT shopify_variant_id FROM price_history WHERE retailer_slug = ? AND scraped_date = ?",
+                [slug, today]
+            )
+            for row in history_result.rows:
+                history_today.add(str(row[0]))
+
+            log(f"  Loaded {len(existing)} existing products, {len(history_today)} history entries for today")
+
             products = fetch_all_products(info["name"], info["base_url"])
             log(f"  Fetched {len(products)} products. Parsing & batching...")
 
@@ -332,6 +352,7 @@ async def main():
             matched = 0
             skipped = 0
             unmatched = 0
+            writes_skipped = 0
             batch = []
 
             for product in products:
@@ -355,7 +376,7 @@ async def main():
                     "Gold Cold Foil": "G",
                 }
                 foiling_key = foiling_map.get(parsed_foiling, "S")
-                
+
                 # Map parsed edition names to database edition IDs
                 edition_map = {
                     "1st Edition": "A",  # Alpha
@@ -367,7 +388,7 @@ async def main():
                 printing_uid = None
                 if card_id and card_id in card_index:
                     variants = card_index[card_id]
-                    
+
                     # Try exact foiling+edition match first
                     composite_key = f"{foiling_key}_{edition_key}"
                     if composite_key in variants:
@@ -378,7 +399,7 @@ async def main():
                     # Fallback: use any available printing for this card_id
                     elif variants:
                         printing_uid = next(iter(variants.values()))
-                    
+
                     if printing_uid:
                         matched += 1
                     else:
@@ -397,7 +418,7 @@ async def main():
                     compare_price = variant.get("compare_at_price")
                     available = 1 if variant.get("available", True) else 0
                     sku = variant.get("sku", "")
-                    
+
                     # Parse condition from variant-specific data
                     condition = parse_condition(title, product.get("tags", []), variant_title)
 
@@ -411,51 +432,54 @@ async def main():
                     except (ValueError, TypeError):
                         compare_cad = None
 
-                    batch.append(libsql_client.Statement(
-                        "INSERT INTO retailer_products "
-                        "(retailer_slug, shopify_product_id, shopify_variant_id, "
-                        "product_title, variant_title, price_cad, compare_at_price_cad, "
-                        "in_stock, sku, product_url, printing_unique_id, raw_tags, condition, updated_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) "
-                        "ON CONFLICT(retailer_slug, shopify_variant_id) DO UPDATE SET "
-                        "product_title=excluded.product_title, "
-                        "variant_title=excluded.variant_title, "
-                        "price_cad=excluded.price_cad, "
-                        "compare_at_price_cad=excluded.compare_at_price_cad, "
-                        "in_stock=excluded.in_stock, "
-                        "sku=excluded.sku, "
-                        "product_url=excluded.product_url, "
-                        "printing_unique_id=excluded.printing_unique_id, "
-                        "raw_tags=excluded.raw_tags, "
-                        "condition=excluded.condition, "
-                        "updated_at=datetime('now')",
-                        [slug, product_id, variant_id, title, variant_title,
-                         price_cad, compare_cad, available, sku, product_url,
-                         printing_uid, raw_tags, condition]
-                    ))
-
-                    batch.append(libsql_client.Statement(
-                        "INSERT INTO price_history "
-                        "(retailer_slug, shopify_variant_id, product_title, "
-                        "variant_title, price_cad, in_stock, printing_unique_id, "
-                        "condition, scraped_date, scraped_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) "
-                        "ON CONFLICT(retailer_slug, shopify_variant_id, scraped_date) "
-                        "DO UPDATE SET "
-                        "price_cad=excluded.price_cad, "
-                        "in_stock=excluded.in_stock, "
-                        "condition=excluded.condition, "
-                        "scraped_at=datetime('now')",
-                        [slug, variant_id, title, variant_title,
-                         price_cad, available, printing_uid, condition, today]
-                    ))
-
                     variants_scraped += 1
+
+                    # Only write retailer_products if price/stock changed (or new variant)
+                    prev = existing.get(variant_id)
+                    if prev is None or prev[0] != price_cad or prev[1] != available:
+                        batch.append(libsql_client.Statement(
+                            "INSERT INTO retailer_products "
+                            "(retailer_slug, shopify_product_id, shopify_variant_id, "
+                            "product_title, variant_title, price_cad, compare_at_price_cad, "
+                            "in_stock, sku, product_url, printing_unique_id, raw_tags, condition, updated_at) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) "
+                            "ON CONFLICT(retailer_slug, shopify_variant_id) DO UPDATE SET "
+                            "product_title=excluded.product_title, "
+                            "variant_title=excluded.variant_title, "
+                            "price_cad=excluded.price_cad, "
+                            "compare_at_price_cad=excluded.compare_at_price_cad, "
+                            "in_stock=excluded.in_stock, "
+                            "sku=excluded.sku, "
+                            "product_url=excluded.product_url, "
+                            "printing_unique_id=excluded.printing_unique_id, "
+                            "raw_tags=excluded.raw_tags, "
+                            "condition=excluded.condition, "
+                            "updated_at=datetime('now')",
+                            [slug, product_id, variant_id, title, variant_title,
+                             price_cad, compare_cad, available, sku, product_url,
+                             printing_uid, raw_tags, condition]
+                        ))
+                    else:
+                        writes_skipped += 1
+
+                    # Only write price_history if not already recorded today
+                    if variant_id not in history_today:
+                        batch.append(libsql_client.Statement(
+                            "INSERT INTO price_history "
+                            "(retailer_slug, shopify_variant_id, product_title, "
+                            "variant_title, price_cad, in_stock, printing_unique_id, "
+                            "condition, scraped_date, scraped_at) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) "
+                            "ON CONFLICT(retailer_slug, shopify_variant_id, scraped_date) DO NOTHING",
+                            [slug, variant_id, title, variant_title,
+                             price_cad, available, printing_uid, condition, today]
+                        ))
+                        history_today.add(variant_id)
 
                     # Flush every BATCH_SIZE variants
                     if len(batch) >= BATCH_SIZE * 2:
                         await flush_batch(client, batch, f"{slug}:{variants_scraped}")
-                        log(f"    ✓ {variants_scraped} variants written...")
+                        log(f"    ✓ {variants_scraped} variants processed...")
                         batch = []
 
             # Flush remaining
@@ -471,10 +495,11 @@ async def main():
                 [slug, len(products) - skipped, variants_scraped, matched, duration]
             )
 
-            log(f"  ✓ {variants_scraped} variants written")
+            log(f"  ✓ {variants_scraped} variants processed")
             log(f"  ✓ {matched} matched to printings in DB")
             log(f"  ✓ {unmatched} had card_id but no matching printing")
             log(f"  ✓ {skipped} skipped (non-cards)")
+            log(f"  ✓ {writes_skipped} product writes skipped (price/stock unchanged)")
             log(f"  ✓ {duration}s elapsed")
 
             grand_variants += variants_scraped
