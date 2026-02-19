@@ -101,6 +101,7 @@ export default function CardsBrowser({ initialCards, initialTotal, searchParams 
   if (query) baseParams.set("q", query);
   if (sort && sort !== "name_asc") baseParams.set("sort", sort);
   if (density && density !== "regular") baseParams.set("density", density);
+  if (view && view !== "grid") baseParams.set("view", view);
   // Preserve filters in pagination links
   for (const key of FILTER_KEYS) {
     const val = searchParams[key];

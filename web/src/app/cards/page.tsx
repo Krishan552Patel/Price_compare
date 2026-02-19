@@ -40,7 +40,7 @@ export default async function CardsPage({
 
         <SortSelect currentSort={sort} />
 
-        <div className="ml-auto hidden sm:block">
+        <div className="ml-auto">
           <GridControls currentDensity={density} currentView={view} />
         </div>
       </div>
