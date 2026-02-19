@@ -2,45 +2,40 @@ import { NextRequest, NextResponse } from "next/server";
 import { browseCards } from "@/lib/queries";
 
 export async function GET(request: NextRequest) {
-  const params = request.nextUrl.searchParams;
-  
-  const query = params.get("q") || undefined;
-  const set = params.get("set") || undefined;
-  const rarity = params.get("rarity") || undefined;
-  const foiling = params.get("foiling") || undefined;
-  const color = params.get("color") || undefined;
-  const type = params.get("type") || undefined;
-  const sort = params.get("sort") || "name_asc";
-  const inStock = params.get("inStock") === "true";
-  const showPrintings = params.get("showPrintings") === "true";
-  const minPrice = params.get("minPrice") ? parseFloat(params.get("minPrice")!) : undefined;
-  const maxPrice = params.get("maxPrice") ? parseFloat(params.get("maxPrice")!) : undefined;
-  const page = parseInt(params.get("page") || "1", 10);
-  const pageSize = parseInt(params.get("pageSize") || "24", 10);
+  const p = request.nextUrl.searchParams;
+
+  const query = p.get("q") || undefined;
+  const sort = p.get("sort") || "name_asc";
+  const page = parseInt(p.get("page") || "1", 10);
+  const pageSize = parseInt(p.get("pageSize") || "24", 10);
+
+  // Filter params
+  const set = p.get("set") || undefined;
+  const rarity = p.get("rarity") || undefined;
+  const foiling = p.get("foiling") || undefined;
+  const edition = p.get("edition") || undefined;
+  const color = p.get("color") || undefined;
+  const cardClass = p.get("class") || undefined;
+  const pitch = p.get("pitch") || undefined;
+  const keyword = p.get("keyword") || undefined;
+  const subtype = p.get("subtype") || undefined;
+  const talent = p.get("talent") || undefined;
+  const artVariation = p.get("artVariation") || undefined;
+  const inStockOnly = p.get("inStockOnly") === "1";
 
   try {
     const result = await browseCards({
-      query,
-      set,
-      rarity,
-      foiling,
-      color,
-      type,
-      sort,
-      inStock,
-      minPrice,
-      maxPrice,
-      page,
-      pageSize,
-      groupByPrinting: !!query || showPrintings || !!foiling,
+      query, sort, page, pageSize,
+      set, rarity, foiling, edition,
+      color, class: cardClass, pitch,
+      keyword, subtype, talent, artVariation, inStockOnly,
     });
 
     return NextResponse.json(result, {
       headers: {
-        // Cache for 2 minutes, stale for 10 minutes
-        "Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
-        "CDN-Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
-        "Vercel-CDN-Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
+        "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+        "CDN-Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+        "Vercel-CDN-Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
       },
     });
   } catch (error) {
