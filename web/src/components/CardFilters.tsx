@@ -7,21 +7,25 @@ import type { FilterOptions } from "@/lib/types";
 // ── Filter keys ──
 const FILTER_KEYS = [
     "set", "rarity", "foiling", "edition", "color",
-    "class", "pitch", "keyword", "subtype", "talent", "artVariation", "inStockOnly",
+    "class", "pitch", "keyword", "subtype", "talent", "fusion", "specialization", "artVariation", "inStockOnly",
+    "power", "health", "cost", "defense",
 ] as const;
 type FilterKey = (typeof FILTER_KEYS)[number];
 
-const BASE_KEYS: FilterKey[] = ["pitch", "class", "foiling", "rarity"];
-const ADVANCED_KEYS: FilterKey[] = ["set", "edition", "keyword", "subtype", "talent", "artVariation", "inStockOnly"];
+const BASE_KEYS: FilterKey[] = ["inStockOnly", "pitch", "class", "foiling", "rarity"];
+const ADVANCED_KEYS: FilterKey[] = ["set", "edition", "keyword", "subtype", "talent", "fusion", "specialization", "artVariation", "power", "health", "cost", "defense"];
 
 function cx(...classes: (string | false | undefined)[]) {
     return classes.filter(Boolean).join(" ");
 }
 
 const TALENT_VALUES = new Set([
-    "Chaos", "Draconic", "Earth", "Elemental", "Ice",
-    "Light", "Lightning", "Mystic", "Revered", "Reviled", "Royal", "Shadow",
+    "Chaos", "Draconic", "Elemental",
+    "Light", "Mystic", "Revered", "Reviled", "Royal", "Shadow",
 ]);
+
+// Fusion elements — displayed in their own filter group
+const FUSION_ELEMENTS = ["Earth", "Ice", "Lightning"];
 
 // ────────────────────────────────────────────────────────────────
 // Main component
@@ -116,6 +120,27 @@ export default function CardFilters() {
 
     return (
         <div className="w-full space-y-4">
+            {/* ── In Stock Only toggle — always at top ── */}
+            <div>
+                <button
+                    onClick={() => toggleFilter("inStockOnly", "1")}
+                    className={cx(
+                        "flex items-center gap-2 px-3 py-2 rounded-lg text-sm border transition-all duration-150",
+                        current("inStockOnly") === "1"
+                            ? "bg-green-600/20 border-green-500/60 text-green-400"
+                            : "bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600"
+                    )}
+                >
+                    <span className={cx(
+                        "w-3 h-3 rounded-full border-2 transition-colors",
+                        current("inStockOnly") === "1"
+                            ? "bg-green-500 border-green-400"
+                            : "border-gray-600"
+                    )} />
+                    In Stock Only
+                </button>
+            </div>
+
             {/* ── Base Filters: always visible ── */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {/* Pitch */}
@@ -294,30 +319,32 @@ function AdvancedModal({
                         current={current("set")}
                         currentLabel={options.sets.find((s) => s.set_code === current("set"))?.name}
                         onSelect={setFilter}
+                        availabilityUrl="/api/cards/sets"
+                        crossFilters={{
+                            keywords: current("keyword") || undefined,
+                            subtypes: current("subtype") || undefined,
+                            talent: current("talent") || undefined,
+                            artVariation: current("artVariation") || undefined,
+                            edition: current("edition") || undefined,
+                        }}
                     />
 
-                    {/* Edition + Pitch side by side */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <PillGroup
-                            label="Edition"
-                            items={options.editions.map((e) => ({ value: e.unique_id, label: e.name }))}
-                            filterKey="edition"
-                            current={current("edition")}
-                            onToggle={toggleFilter}
-                        />
-                        <PillGroup
-                            label="Pitch"
-                            items={[
-                                { value: "0", label: "⚫ 0" },
-                                { value: "1", label: "🔴 1" },
-                                { value: "2", label: "🟡 2" },
-                                { value: "3", label: "🔵 3" },
-                            ]}
-                            filterKey="pitch"
-                            current={current("pitch")}
-                            onToggle={toggleFilter}
-                        />
-                    </div>
+                    {/* Edition */}
+                    <PillGroup
+                        label="Edition"
+                        items={options.editions.map((e) => ({ value: e.unique_id, label: e.name }))}
+                        filterKey="edition"
+                        current={current("edition")}
+                        onToggle={toggleFilter}
+                        availabilityUrl="/api/cards/editions"
+                        crossFilters={{
+                            keywords: current("keyword") || undefined,
+                            subtypes: current("subtype") || undefined,
+                            talent: current("talent") || undefined,
+                            artVariation: current("artVariation") || undefined,
+                            set: current("set") || undefined,
+                        }}
+                    />
 
                     {/* Keyword — scrollable pill buttons with search */}
                     <SearchablePillGroup
@@ -332,6 +359,8 @@ function AdvancedModal({
                             subtypes: current("subtype") || undefined,
                             talent: current("talent") || undefined,
                             artVariation: current("artVariation") || undefined,
+                            set: current("set") || undefined,
+                            edition: current("edition") || undefined,
                         }}
                     />
 
@@ -339,7 +368,7 @@ function AdvancedModal({
                     <SearchablePillGroup
                         label="Subtype"
                         items={options.subtypes
-                            .filter((s) => !TALENT_VALUES.has(s))
+                            .filter((s) => !TALENT_VALUES.has(s) && !FUSION_ELEMENTS.includes(s))
                             .map((s) => ({ value: s, label: s }))}
                         filterKey="subtype"
                         current={current("subtype")}
@@ -350,27 +379,25 @@ function AdvancedModal({
                             keywords: current("keyword") || undefined,
                             talent: current("talent") || undefined,
                             artVariation: current("artVariation") || undefined,
+                            set: current("set") || undefined,
+                            edition: current("edition") || undefined,
                         }}
                     />
 
-                    {/* Talent + Art Variation */}
+                    {/* Fusion (Earth, Ice, Lightning) + Talent side by side */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <PillGroup
+                            label="Fusion"
+                            items={FUSION_ELEMENTS.map((e) => ({ value: e, label: e }))}
+                            filterKey="fusion"
+                            current={current("fusion")}
+                            onToggle={toggleFilter}
+                        />
+                        <PillGroup
                             label="Talent"
-                            items={[
-                                { value: "Chaos", label: "Chaos" },
-                                { value: "Draconic", label: "Draconic" },
-                                { value: "Earth", label: "Earth" },
-                                { value: "Elemental", label: "Elemental" },
-                                { value: "Ice", label: "Ice" },
-                                { value: "Light", label: "Light" },
-                                { value: "Lightning", label: "Lightning" },
-                                { value: "Mystic", label: "Mystic" },
-                                { value: "Revered", label: "Revered" },
-                                { value: "Reviled", label: "Reviled" },
-                                { value: "Royal", label: "Royal" },
-                                { value: "Shadow", label: "Shadow" },
-                            ]}
+                            items={Array.from(TALENT_VALUES)
+                                .sort()
+                                .map((t) => ({ value: t, label: t }))}
                             filterKey="talent"
                             current={current("talent")}
                             onToggle={toggleFilter}
@@ -379,7 +406,22 @@ function AdvancedModal({
                                 keywords: current("keyword") || undefined,
                                 subtypes: current("subtype") || undefined,
                                 artVariation: current("artVariation") || undefined,
+                                set: current("set") || undefined,
+                                edition: current("edition") || undefined,
                             }}
+                        />
+                    </div>
+
+                    {/* Specialization + Art Variation side by side */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <SearchableSelect
+                            label="Specialization"
+                            items={(options.heroes || []).map((h) => ({ value: h, label: h }))}
+                            filterKey="specialization"
+                            current={current("specialization")}
+                            currentLabel={current("specialization") || undefined}
+                            onSelect={setFilter}
+                            placeholder="None"
                         />
                         <PillGroup
                             label="Art Variation"
@@ -399,32 +441,18 @@ function AdvancedModal({
                                 keywords: current("keyword") || undefined,
                                 subtypes: current("subtype") || undefined,
                                 talent: current("talent") || undefined,
+                                set: current("set") || undefined,
+                                edition: current("edition") || undefined,
                             }}
                         />
                     </div>
 
-                    {/* In Stock */}
-                    <div>
-                        <span className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
-                            Availability
-                        </span>
-                        <button
-                            onClick={() => toggleFilter("inStockOnly", "1")}
-                            className={cx(
-                                "flex items-center gap-2 px-3 py-2 rounded-lg text-sm border transition-all duration-150 w-full",
-                                current("inStockOnly") === "1"
-                                    ? "bg-green-600/20 border-green-500/60 text-green-400"
-                                    : "bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600"
-                            )}
-                        >
-                            <span className={cx(
-                                "w-3 h-3 rounded-full border-2 transition-colors",
-                                current("inStockOnly") === "1"
-                                    ? "bg-green-500 border-green-400"
-                                    : "border-gray-600"
-                            )} />
-                            In Stock Only
-                        </button>
+                    {/* Stat Filters: Cost, Power, Defense, Health */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <StatInput label="Cost" filterKey="cost" current={current("cost")} onSet={setFilter} />
+                        <StatInput label="Power" filterKey="power" current={current("power")} onSet={setFilter} />
+                        <StatInput label="Defense" filterKey="defense" current={current("defense")} onSet={setFilter} />
+                        <StatInput label="Health" filterKey="health" current={current("health")} onSet={setFilter} />
                     </div>
                 </div>
 
@@ -643,7 +671,7 @@ function SearchablePillGroup({
 // SearchableSelect — for large lists
 // ────────────────────────────────────────────────────────────────
 function SearchableSelect({
-    label, items, filterKey, current, currentLabel, onSelect,
+    label, items, filterKey, current, currentLabel, onSelect, availabilityUrl, crossFilters, placeholder,
 }: {
     label: string;
     items: { value: string; label: string }[];
@@ -651,10 +679,33 @@ function SearchableSelect({
     current: string;
     currentLabel?: string;
     onSelect: (key: FilterKey, value: string | null) => void;
+    availabilityUrl?: string;
+    crossFilters?: Record<string, string | undefined>;
+    placeholder?: string;
 }) {
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState("");
+    const [availableValues, setAvailableValues] = useState<Set<string> | null>(null);
     const ref = useRef<HTMLDivElement>(null);
+
+    // Stable serialisation of crossFilters for useEffect dependency
+    const crossFilterKey = crossFilters
+        ? Object.entries(crossFilters)
+            .filter(([, v]) => v)
+            .map(([k, v]) => `${k}=${v}`)
+            .join("&")
+        : "";
+
+    useEffect(() => {
+        if (!availabilityUrl) { setAvailableValues(null); return; }
+        if (!crossFilterKey) { setAvailableValues(null); return; }
+        const controller = new AbortController();
+        fetch(`${availabilityUrl}?${crossFilterKey}`, { signal: controller.signal })
+            .then((r) => r.json())
+            .then((data: string[]) => setAvailableValues(new Set(data)))
+            .catch(() => { });
+        return () => controller.abort();
+    }, [availabilityUrl, crossFilterKey]);
 
     useEffect(() => {
         if (!open) return;
@@ -666,9 +717,12 @@ function SearchableSelect({
     }, [open]);
 
     const filtered = useMemo(() => {
-        if (!search) return items.slice(0, 50);
-        const q = search.toLowerCase();
-        return items.filter((i) => i.label.toLowerCase().includes(q)).slice(0, 50);
+        let list = items;
+        if (search) {
+            const q = search.toLowerCase();
+            list = list.filter((i) => i.label.toLowerCase().includes(q));
+        }
+        return list.slice(0, 50);
     }, [items, search]);
 
     const displayLabel = current
@@ -689,7 +743,7 @@ function SearchableSelect({
                         : "bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600"
                 )}
             >
-                <span className="truncate">{displayLabel || `All ${label}s`}</span>
+                <span className="truncate">{displayLabel || placeholder || `All ${label}s`}</span>
                 <div className="flex items-center gap-1 ml-2 shrink-0">
                     {current && (
                         <span
@@ -724,22 +778,29 @@ function SearchableSelect({
                                 !current ? "text-red-400 bg-red-600/10" : "text-gray-400 hover:bg-gray-800 hover:text-white"
                             )}
                         >
-                            All {label}s
+                            {placeholder || `All ${label}s`}
                         </button>
-                        {filtered.map((item) => (
-                            <button
-                                key={item.value}
-                                onClick={() => { onSelect(filterKey, item.value); setOpen(false); }}
-                                className={cx(
-                                    "w-full text-left px-3 py-1.5 text-sm transition-colors",
-                                    current === item.value
-                                        ? "text-red-400 bg-red-600/10"
-                                        : "text-gray-300 hover:bg-gray-800 hover:text-white"
-                                )}
-                            >
-                                {item.label}
-                            </button>
-                        ))}
+                        {filtered.map((item) => {
+                            const isUnavailable = availableValues !== null && current !== item.value && !availableValues.has(item.value);
+                            return (
+                                <button
+                                    key={item.value}
+                                    onClick={() => {
+                                        if (!isUnavailable) { onSelect(filterKey, item.value); setOpen(false); }
+                                    }}
+                                    className={cx(
+                                        "w-full text-left px-3 py-1.5 text-sm transition-colors",
+                                        current === item.value
+                                            ? "text-red-400 bg-red-600/10"
+                                            : isUnavailable
+                                                ? "text-gray-700 cursor-not-allowed"
+                                                : "text-gray-300 hover:bg-gray-800 hover:text-white"
+                                    )}
+                                >
+                                    {item.label}
+                                </button>
+                            );
+                        })}
                         {filtered.length === 0 && (
                             <div className="px-3 py-3 text-sm text-gray-600 text-center">No matches</div>
                         )}
@@ -750,12 +811,47 @@ function SearchableSelect({
     );
 }
 
+// ────────────────────────────────────────────────────────────────
+// StatInput — a simple numeric input for stat filters
+// ────────────────────────────────────────────────────────────────
+function StatInput({
+    label, filterKey, current, onSet,
+}: {
+    label: string;
+    filterKey: FilterKey;
+    current: string;
+    onSet: (key: FilterKey, value: string | null) => void;
+}) {
+    const [value, setValue] = useState(current);
+
+    // Sync with URL changes
+    useEffect(() => { setValue(current); }, [current]);
+
+    return (
+        <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">{label}</label>
+            <input
+                type="number"
+                min="0"
+                placeholder="Any"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onBlur={() => onSet(filterKey, value || null)}
+                onKeyDown={(e) => { if (e.key === "Enter") onSet(filterKey, value || null); }}
+                className="w-full px-3 py-1.5 rounded-lg text-sm bg-gray-800 border border-gray-700 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-red-500/60 transition-colors"
+            />
+        </div>
+    );
+}
+
 // ── Helpers ──
 function formatLabel(key: string): string {
     const map: Record<string, string> = {
         set: "Set", rarity: "Rarity", foiling: "Foiling", edition: "Edition",
         color: "Color", class: "Class", pitch: "Pitch", keyword: "Keyword",
-        subtype: "Subtype", talent: "Talent", inStockOnly: "In Stock",
+        subtype: "Subtype", talent: "Talent", fusion: "Fusion",
+        specialization: "Specialization", inStockOnly: "In Stock",
+        power: "Power", health: "Health", cost: "Cost", defense: "Defense",
     };
     return map[key] || key;
 }

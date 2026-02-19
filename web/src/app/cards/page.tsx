@@ -15,13 +15,15 @@ export default async function CardsPage({
   const query = params.q;
   const sort = params.sort || "name_asc";
   const density = params.density || "regular";
+  const view = params.view || "grid";
   const page = parseInt(params.page || "1", 10);
 
   // Collect all filter params to pass through to CardsBrowser
   const filterParams: Record<string, string | undefined> = {};
   const filterKeys = [
     "set", "rarity", "foiling", "edition", "color",
-    "class", "pitch", "keyword", "subtype", "talent", "artVariation", "inStockOnly",
+    "class", "pitch", "keyword", "subtype", "talent", "fusion", "specialization", "artVariation", "inStockOnly",
+    "power", "health", "cost", "defense",
   ];
   for (const key of filterKeys) {
     if (params[key]) filterParams[key] = params[key];
@@ -39,13 +41,13 @@ export default async function CardsPage({
         <SortSelect currentSort={sort} />
 
         <div className="ml-auto hidden sm:block">
-          <GridControls currentDensity={density} />
+          <GridControls currentDensity={density} currentView={view} />
         </div>
       </div>
 
       <Suspense fallback={<CardGridSkeleton />}>
         <CardsBrowser
-          searchParams={{ query, sort, density, page, ...filterParams }}
+          searchParams={{ query, sort, density, view, page, ...filterParams }}
         />
       </Suspense>
     </div>

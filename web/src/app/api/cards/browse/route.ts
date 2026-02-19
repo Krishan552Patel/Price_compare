@@ -20,15 +20,22 @@ export async function GET(request: NextRequest) {
   const keyword = p.get("keyword") || undefined;
   const subtype = p.get("subtype") || undefined;
   const talent = p.get("talent") || undefined;
+  const fusion = p.get("fusion") || undefined;
+  const specialization = p.get("specialization") || undefined;
   const artVariation = p.get("artVariation") || undefined;
   const inStockOnly = p.get("inStockOnly") === "1";
+  const power = p.get("power") || undefined;
+  const health = p.get("health") || undefined;
+  const cost = p.get("cost") || undefined;
+  const defense = p.get("defense") || undefined;
 
   try {
     const result = await browseCards({
       query, sort, page, pageSize,
       set, rarity, foiling, edition,
       color, class: cardClass, pitch,
-      keyword, subtype, talent, artVariation, inStockOnly,
+      keyword, subtype, talent, fusion, specialization, artVariation, inStockOnly,
+      power, health, cost, defense,
     });
 
     return NextResponse.json(result, {

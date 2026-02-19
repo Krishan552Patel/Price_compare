@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from "react";
 import CardGrid from "./CardGrid";
+import CardTable from "./CardTable";
 import CardGridSkeleton from "./CardGridSkeleton";
 import Pagination from "./Pagination";
 import type { Card } from "@/lib/types";
 
 const FILTER_KEYS = [
   "set", "rarity", "foiling", "edition", "color",
-  "class", "pitch", "keyword", "subtype", "talent", "artVariation", "inStockOnly",
+  "class", "pitch", "keyword", "subtype", "talent", "fusion", "specialization", "artVariation", "inStockOnly",
+  "power", "health", "cost", "defense",
 ] as const;
 
 interface CardsBrowserProps {
@@ -33,6 +35,7 @@ export default function CardsBrowser({ initialCards, initialTotal, searchParams 
     query,
     sort = "name_asc",
     density = "regular",
+    view = "grid",
     page = 1,
   } = searchParams;
 
@@ -131,6 +134,8 @@ export default function CardsBrowser({ initialCards, initialTotal, searchParams 
 
       {loading ? (
         <CardGridSkeleton count={pageSize} />
+      ) : view === "table" ? (
+        <CardTable cards={cards} />
       ) : (
         <CardGrid cards={cards} density={density as "few" | "regular" | "many" | "most"} />
       )}

@@ -88,22 +88,22 @@ export default async function CardDetailPage({
           <div className="flex flex-wrap gap-2 mt-4">
             <PitchDot pitch={card.pitch} />
             <ColorBadge color={card.color} />
-            {card.pitch !== null && (
+            {card.pitch !== null && card.pitch !== "" && (
               <StatPill label="Pitch" value={card.pitch} />
             )}
-            {card.cost !== null && (
+            {card.cost !== null && card.cost !== "" && (
               <StatPill label="Cost" value={card.cost} />
             )}
-            {card.power !== null && (
+            {card.power !== null && card.power !== "" && (
               <StatPill label="Power" value={card.power} />
             )}
-            {card.defense !== null && (
+            {card.defense !== null && card.defense !== "" && (
               <StatPill label="Defense" value={card.defense} />
             )}
-            {card.health !== null && (
+            {card.health !== null && card.health !== "" && (
               <StatPill label="Health" value={card.health} />
             )}
-            {card.intelligence !== null && (
+            {card.intelligence !== null && card.intelligence !== "" && (
               <StatPill label="Intelligence" value={card.intelligence} />
             )}
           </div>

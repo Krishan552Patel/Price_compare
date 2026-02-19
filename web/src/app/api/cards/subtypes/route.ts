@@ -7,6 +7,8 @@ export async function GET(request: NextRequest) {
     const keywords = searchParams.get("keywords");
     const talent = searchParams.get("talent") || undefined;
     const artVariation = searchParams.get("artVariation") || undefined;
+    const set = searchParams.get("set") || undefined;
+    const edition = searchParams.get("edition") || undefined;
 
     const selectedArray = selected
         ? selected.split(",").map((s) => s.trim()).filter(Boolean)
@@ -19,6 +21,8 @@ export async function GET(request: NextRequest) {
         keywords: keywordsArray.length > 0 ? keywordsArray : undefined,
         talent,
         artVariation,
+        set,
+        edition,
     });
 
     return NextResponse.json(subtypes, {
