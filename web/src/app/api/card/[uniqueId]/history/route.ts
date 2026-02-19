@@ -10,10 +10,10 @@ export async function GET(
   
   return NextResponse.json(history, {
     headers: {
-      // History changes less frequently - cache for 5 minutes
-      "Cache-Control": "public, s-maxage=300, stale-while-revalidate=900",
-      "CDN-Cache-Control": "public, s-maxage=300, stale-while-revalidate=900",
-      "Vercel-CDN-Cache-Control": "public, s-maxage=300, stale-while-revalidate=900",
+      // Cache for 6 hours, stale for 24 hours (history grows 2x/day)
+      "Cache-Control": "public, s-maxage=21600, stale-while-revalidate=86400",
+      "CDN-Cache-Control": "public, s-maxage=21600, stale-while-revalidate=86400",
+      "Vercel-CDN-Cache-Control": "public, s-maxage=21600, stale-while-revalidate=86400",
     },
   });
 }

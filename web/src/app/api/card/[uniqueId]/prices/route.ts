@@ -11,10 +11,10 @@ export async function GET(
   
   return NextResponse.json(prices, {
     headers: {
-      // Cache for 2 minutes, stale-while-revalidate for 10 minutes
-      "Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
-      "CDN-Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
-      "Vercel-CDN-Cache-Control": "public, s-maxage=120, stale-while-revalidate=600",
+      // Cache for 1 hour, stale for 24 hours (prices only update 2x/day)
+      "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+      "CDN-Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+      "Vercel-CDN-Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
     },
   });
 }

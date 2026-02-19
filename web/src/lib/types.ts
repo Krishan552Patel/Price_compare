@@ -94,8 +94,14 @@ export interface FilterOptions {
   sets: SetInfo[];
   rarities: { unique_id: string; name: string }[];
   foilings: { unique_id: string; name: string }[];
+  editions: { unique_id: string; name: string }[];
   colors: string[];
-  classes: string[];
+  classes: string[];       // type_text (Warrior, Wizard, etc.)
+  keywords: string[];      // card_keywords JSON array values
+  subtypes: string[];      // from types JSON array
+  artists: string[];       // from printings.artists JSON array
+  talents: string[];       // from traits JSON array matching talent list
+  pitches: string[];       // distinct pitch values ("1","2","3")
 }
 
 export interface SearchResult {

@@ -292,6 +292,11 @@ export default function PriceChart({
               dataKey="date"
               tick={{ fill: "#9ca3af", fontSize: 12 }}
               tickLine={false}
+              tickFormatter={(dateStr: string) => {
+                // Append noon time so UTC-offset doesn't roll the day back
+                const d = new Date(dateStr + "T12:00:00");
+                return d.toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+              }}
             />
             <YAxis
               tick={{ fill: "#9ca3af", fontSize: 12 }}
@@ -306,6 +311,10 @@ export default function PriceChart({
                 maxWidth: "300px",
               }}
               labelStyle={{ color: "#9ca3af" }}
+              labelFormatter={(dateStr: string) => {
+                const d = new Date(dateStr + "T12:00:00");
+                return d.toLocaleDateString("en-CA", { year: "numeric", month: "short", day: "numeric" });
+              }}
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               formatter={(value: any, name: any) => [
                 `$${Number(value).toFixed(2)}`,
