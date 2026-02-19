@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(gh:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git remote add:*)",
+      "Bash(git push:*)",
+      "Bash(timeout:*)",
+      "Bash(curl:*)",
+      "Bash(cmd.exe /c:*)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:fabrary.net)",
+      "Bash(ls:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(del:*)",
+      "Bash(del \"C:\\\\Users\\\\Krishan\\\\Desktop\\\\fab-cards-db\\\\web\\\\src\\\\components\\\\FilterDrawer.tsx\")"
+    ]
+  }
+}
