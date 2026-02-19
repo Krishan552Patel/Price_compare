@@ -48,7 +48,7 @@ export default function PriceChart({
 }) {
   const [rawData, setRawData] = useState<PriceHistoryPoint[]>([]);
   const [loading, setLoading] = useState(true);
-  
+
   // Filters
   const [timeRange, setTimeRange] = useState<TimeRange>("all");
   const [conditionFilter, setConditionFilter] = useState<ConditionFilter>("NM");
@@ -147,7 +147,7 @@ export default function PriceChart({
         dateMap.set(point.scraped_date, { date: point.scraped_date });
       }
       const entry = dateMap.get(point.scraped_date)!;
-      
+
       // If multiple prices for same key on same day, use lowest
       const existing = entry[key] as number | null;
       if (existing === null || existing === undefined || point.price_cad < existing) {
@@ -210,8 +210,8 @@ export default function PriceChart({
                 key={range}
                 onClick={() => setTimeRange(range)}
                 className={`px-3 py-1.5 text-xs transition ${timeRange === range
-                    ? "bg-red-600 text-white"
-                    : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                  ? "bg-red-600 text-white"
+                  : "bg-gray-800 text-gray-300 hover:bg-gray-700"
                   }`}
               >
                 {range === "all" ? "All" : range}
@@ -264,11 +264,10 @@ export default function PriceChart({
           <button
             key={slug}
             onClick={() => toggleRetailer(slug)}
-            className={`px-3 py-1 rounded text-xs font-medium transition border ${
-              enabledRetailers.has(slug)
+            className={`px-3 py-1 rounded text-xs font-medium transition border ${enabledRetailers.has(slug)
                 ? "border-transparent text-white"
                 : "border-gray-600 text-gray-500 bg-transparent"
-            }`}
+              }`}
             style={{
               backgroundColor: enabledRetailers.has(slug)
                 ? RETAILER_COLORS[slug] || "#6b7280"
@@ -311,7 +310,8 @@ export default function PriceChart({
                 maxWidth: "300px",
               }}
               labelStyle={{ color: "#9ca3af" }}
-              labelFormatter={(dateStr: string) => {
+              labelFormatter={(label) => {
+                const dateStr = String(label);
                 const d = new Date(dateStr + "T12:00:00");
                 return d.toLocaleDateString("en-CA", { year: "numeric", month: "short", day: "numeric" });
               }}
