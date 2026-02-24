@@ -1141,17 +1141,34 @@ export async function getTrendingCards(params: {
 
     // safeDays is always a whitelist integer — safe to interpolate directly
     const sql = `
-      WITH price_past AS (
-        SELECT DISTINCT ON (ph.printing_unique_id)
-          ph.printing_unique_id,
-          ph.price_cad AS past_price
+      WITH earliest_date AS (
+        -- Find the earliest scrape date available for each printing within the window.
+        -- We use this to anchor the "past price" to the START of the period.
+        SELECT
+          printing_unique_id,
+          MIN(scraped_date) AS d
+        FROM price_history
+        WHERE condition = 'NM'
+          AND in_stock = 1
+          AND scraped_date >= CURRENT_DATE - INTERVAL '${safeDays} days'
+          AND scraped_date < CURRENT_DATE
+          AND price_cad > 0
+          AND printing_unique_id IS NOT NULL
+        GROUP BY printing_unique_id
+      ),
+      price_past AS (
+        -- Use MIN(price_cad) on the earliest date so we pick the cheapest retailer,
+        -- consistent with price_current which also uses MIN. This avoids false
+        -- trends caused by outlier/erroneous listings at one retailer.
+        SELECT ph.printing_unique_id, MIN(ph.price_cad) AS past_price
         FROM price_history ph
+        JOIN earliest_date ed
+          ON ph.printing_unique_id = ed.printing_unique_id
+         AND ph.scraped_date = ed.d
         WHERE ph.condition = 'NM'
           AND ph.in_stock = 1
-          AND ph.scraped_date >= CURRENT_DATE - INTERVAL '${safeDays} days'
-          AND ph.scraped_date < CURRENT_DATE
           AND ph.price_cad > 0
-        ORDER BY ph.printing_unique_id, ph.scraped_date ASC
+        GROUP BY ph.printing_unique_id
       ),
       price_current AS (
         SELECT
@@ -1160,6 +1177,7 @@ export async function getTrendingCards(params: {
         FROM retailer_products rp
         WHERE rp.in_stock = 1
           AND rp.condition = 'NM'
+          AND rp.printing_unique_id IS NOT NULL
         GROUP BY rp.printing_unique_id
       )
       SELECT
@@ -1185,6 +1203,11 @@ export async function getTrendingCards(params: {
       LEFT JOIN sets s ON p.set_id = s.set_code
       WHERE 1=1
       ${whereExtra}
+      -- Sanity guard: scraper fallback sometimes maps a cheap Normal product to an
+      -- expensive Cold Foil printing_unique_id, producing fake 2000–7000% "moves".
+      -- A real price spike in FAB rarely exceeds 10× in a single window, so we cap
+      -- at ±1000% to suppress scraper noise while keeping genuine dramatic moves.
+      AND ((pc.current_price - pp.past_price) / pp.past_price * 100) BETWEEN -99 AND 1000
       ORDER BY ABS(pc.current_price - pp.past_price) DESC
       LIMIT 200
     `;
