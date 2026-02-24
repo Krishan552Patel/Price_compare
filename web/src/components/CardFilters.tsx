@@ -15,6 +15,7 @@ type FilterKey = (typeof FILTER_KEYS)[number];
 const BASE_KEYS: FilterKey[] = ["inStockOnly", "pitch", "class", "foiling", "rarity"];
 const ADVANCED_KEYS: FilterKey[] = ["set", "edition", "keyword", "subtype", "talent", "fusion", "specialization", "artVariation", "power", "health", "cost", "defense"];
 
+
 function cx(...classes: (string | false | undefined)[]) {
     return classes.filter(Boolean).join(" ");
 }
@@ -30,12 +31,31 @@ const FUSION_ELEMENTS = ["Earth", "Ice", "Lightning"];
 // ────────────────────────────────────────────────────────────────
 // Main component
 // ────────────────────────────────────────────────────────────────
-export default function CardFilters() {
+export default function CardFilters({
+    basePath = "/cards",
+    collectionAvailable,
+}: {
+    /**
+     * The URL path to push filter params to.
+     * Default: "/cards" (browse mode).
+     * Pass "/account/collection" when used on the collection page.
+     */
+    basePath?: string;
+    /**
+     * When provided, the component enters "collection mode":
+     * - Options whose value is NOT in the provided Set are grayed out
+     * - Irrelevant filters (pitch, class, stats, in-stock, etc.) are hidden
+     * - No availability API calls are made — the Sets act as the availability source
+     */
+    collectionAvailable?: Partial<Record<FilterKey, Set<string>>>;
+}) {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [options, setOptions] = useState<FilterOptions | null>(null);
     const [loading, setLoading] = useState(false);
     const [advancedOpen, setAdvancedOpen] = useState(false);
+
+    const collectionMode = !!collectionAvailable; // used only for modal title label
 
     // Fetch filter options on mount
     useEffect(() => {
@@ -47,7 +67,7 @@ export default function CardFilters() {
             .finally(() => setLoading(false));
     }, []);
 
-    // Count active filters
+    // Active filter counts
     const activeCount = useMemo(() => {
         let n = 0;
         for (const key of FILTER_KEYS) {
@@ -56,13 +76,15 @@ export default function CardFilters() {
         return n;
     }, [searchParams]);
 
+    const advancedKeys = ADVANCED_KEYS;
+
     const advancedCount = useMemo(() => {
         let n = 0;
-        for (const key of ADVANCED_KEYS) {
+        for (const key of advancedKeys) {
             if (searchParams.get(key)) n++;
         }
         return n;
-    }, [searchParams]);
+    }, [searchParams, advancedKeys]);
 
     // ── URL helpers ──
     const setFilter = useCallback((key: FilterKey, value: string | null) => {
@@ -73,22 +95,22 @@ export default function CardFilters() {
             p.set(key, value);
         }
         p.delete("page");
-        router.push(`/cards?${p.toString()}`);
-    }, [router, searchParams]);
+        router.push(`${basePath}?${p.toString()}`);
+    }, [router, searchParams, basePath]);
 
     const clearAll = useCallback(() => {
         const p = new URLSearchParams(searchParams.toString());
         for (const key of FILTER_KEYS) p.delete(key);
         p.delete("page");
-        router.push(`/cards?${p.toString()}`);
-    }, [router, searchParams]);
+        router.push(`${basePath}?${p.toString()}`);
+    }, [router, searchParams, basePath]);
 
     const clearAdvanced = useCallback(() => {
         const p = new URLSearchParams(searchParams.toString());
-        for (const key of ADVANCED_KEYS) p.delete(key);
+        for (const key of advancedKeys) p.delete(key);
         p.delete("page");
-        router.push(`/cards?${p.toString()}`);
-    }, [router, searchParams]);
+        router.push(`${basePath}?${p.toString()}`);
+    }, [router, searchParams, basePath, advancedKeys]);
 
     const toggleFilter = useCallback((key: FilterKey, value: string) => {
         const current = searchParams.get(key);
@@ -120,7 +142,7 @@ export default function CardFilters() {
 
     return (
         <div className="w-full space-y-4">
-            {/* ── In Stock Only toggle — always at top ── */}
+            {/* ── In Stock Only toggle ── */}
             <div>
                 <button
                     onClick={() => toggleFilter("inStockOnly", "1")}
@@ -141,7 +163,7 @@ export default function CardFilters() {
                 </button>
             </div>
 
-            {/* ── Base Filters: always visible ── */}
+            {/* ── Base Filters ── */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {/* Pitch */}
                 <PillGroup
@@ -171,15 +193,17 @@ export default function CardFilters() {
                     filterKey="foiling"
                     current={current("foiling")}
                     onToggle={toggleFilter}
+                    collectionOverride={collectionAvailable?.foiling}
                 />
 
-                {/* Rarity */}
+                {/* Rarity — both modes */}
                 <PillGroup
                     label="Rarity"
                     items={options.rarities.map((r) => ({ value: r.unique_id, label: r.name }))}
                     filterKey="rarity"
                     current={current("rarity")}
                     onToggle={toggleFilter}
+                    collectionOverride={collectionAvailable?.rarity}
                 />
             </div>
 
@@ -206,7 +230,7 @@ export default function CardFilters() {
                 </button>
 
                 {/* Show active advanced filter pills inline */}
-                {ADVANCED_KEYS.map((key) => {
+                {advancedKeys.map((key) => {
                     const val = searchParams.get(key);
                     if (!val) return null;
                     // Multi-value keys show individual pills per value
@@ -264,6 +288,8 @@ export default function CardFilters() {
                     clearAdvanced={clearAdvanced}
                     advancedCount={advancedCount}
                     onClose={() => setAdvancedOpen(false)}
+                    collectionMode={collectionMode}
+                    collectionAvailable={collectionAvailable}
                 />
             )}
         </div>
@@ -275,6 +301,7 @@ export default function CardFilters() {
 // ────────────────────────────────────────────────────────────────
 function AdvancedModal({
     options, current, toggleFilter, toggleMultiFilter, setFilter, clearAdvanced, advancedCount, onClose,
+    collectionMode, collectionAvailable,
 }: {
     options: FilterOptions;
     current: (key: FilterKey) => string;
@@ -284,6 +311,8 @@ function AdvancedModal({
     clearAdvanced: () => void;
     advancedCount: number;
     onClose: () => void;
+    collectionMode: boolean;
+    collectionAvailable?: Partial<Record<FilterKey, Set<string>>>;
 }) {
     // Close on Escape
     useEffect(() => {
@@ -301,7 +330,9 @@ function AdvancedModal({
             <div className="relative bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
-                    <h2 className="text-lg font-semibold text-white">Advanced Filters</h2>
+                    <h2 className="text-lg font-semibold text-white">
+                        {collectionMode ? "More Filters" : "Advanced Filters"}
+                    </h2>
                     <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors p-1">
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -319,14 +350,18 @@ function AdvancedModal({
                         current={current("set")}
                         currentLabel={options.sets.find((s) => s.set_code === current("set"))?.name}
                         onSelect={setFilter}
-                        availabilityUrl="/api/cards/sets"
-                        crossFilters={{
+                        availabilityUrl={collectionMode ? undefined : "/api/cards/sets"}
+                        crossFilters={collectionMode ? undefined : {
                             keywords: current("keyword") || undefined,
                             subtypes: current("subtype") || undefined,
                             talent: current("talent") || undefined,
+                            fusion: current("fusion") || undefined,
+                            specialization: current("specialization") || undefined,
+                            class: current("class") || undefined,
                             artVariation: current("artVariation") || undefined,
                             edition: current("edition") || undefined,
                         }}
+                        collectionOverride={collectionAvailable?.set}
                     />
 
                     {/* Edition */}
@@ -336,14 +371,18 @@ function AdvancedModal({
                         filterKey="edition"
                         current={current("edition")}
                         onToggle={toggleFilter}
-                        availabilityUrl="/api/cards/editions"
-                        crossFilters={{
+                        availabilityUrl={collectionMode ? undefined : "/api/cards/editions"}
+                        crossFilters={collectionMode ? undefined : {
                             keywords: current("keyword") || undefined,
                             subtypes: current("subtype") || undefined,
                             talent: current("talent") || undefined,
+                            fusion: current("fusion") || undefined,
+                            specialization: current("specialization") || undefined,
+                            class: current("class") || undefined,
                             artVariation: current("artVariation") || undefined,
                             set: current("set") || undefined,
                         }}
+                        collectionOverride={collectionAvailable?.edition}
                     />
 
                     {/* Keyword — scrollable pill buttons with search */}
@@ -358,6 +397,9 @@ function AdvancedModal({
                         crossFilters={{
                             subtypes: current("subtype") || undefined,
                             talent: current("talent") || undefined,
+                            fusion: current("fusion") || undefined,
+                            specialization: current("specialization") || undefined,
+                            class: current("class") || undefined,
                             artVariation: current("artVariation") || undefined,
                             set: current("set") || undefined,
                             edition: current("edition") || undefined,
@@ -378,26 +420,39 @@ function AdvancedModal({
                         crossFilters={{
                             keywords: current("keyword") || undefined,
                             talent: current("talent") || undefined,
+                            fusion: current("fusion") || undefined,
+                            specialization: current("specialization") || undefined,
+                            class: current("class") || undefined,
                             artVariation: current("artVariation") || undefined,
                             set: current("set") || undefined,
                             edition: current("edition") || undefined,
                         }}
                     />
 
-                    {/* Fusion (Earth, Ice, Lightning) + Talent side by side */}
+                    {/* Fusion + Talent */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <PillGroup
                             label="Fusion"
                             items={FUSION_ELEMENTS.map((e) => ({ value: e, label: e }))}
                             filterKey="fusion"
                             current={current("fusion")}
-                            onToggle={toggleFilter}
+                            onToggle={toggleMultiFilter}
+                            multiSelect
+                            availabilityUrl="/api/cards/fusions"
+                            crossFilters={{
+                                keywords: current("keyword") || undefined,
+                                subtypes: current("subtype") || undefined,
+                                talent: current("talent") || undefined,
+                                specialization: current("specialization") || undefined,
+                                class: current("class") || undefined,
+                                artVariation: current("artVariation") || undefined,
+                                set: current("set") || undefined,
+                                edition: current("edition") || undefined,
+                            }}
                         />
                         <PillGroup
                             label="Talent"
-                            items={Array.from(TALENT_VALUES)
-                                .sort()
-                                .map((t) => ({ value: t, label: t }))}
+                            items={Array.from(TALENT_VALUES).sort().map((t) => ({ value: t, label: t }))}
                             filterKey="talent"
                             current={current("talent")}
                             onToggle={toggleFilter}
@@ -405,6 +460,9 @@ function AdvancedModal({
                             crossFilters={{
                                 keywords: current("keyword") || undefined,
                                 subtypes: current("subtype") || undefined,
+                                fusion: current("fusion") || undefined,
+                                specialization: current("specialization") || undefined,
+                                class: current("class") || undefined,
                                 artVariation: current("artVariation") || undefined,
                                 set: current("set") || undefined,
                                 edition: current("edition") || undefined,
@@ -412,7 +470,7 @@ function AdvancedModal({
                         />
                     </div>
 
-                    {/* Specialization + Art Variation side by side */}
+                    {/* Specialization + Art Variation */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <SearchableSelect
                             label="Specialization"
@@ -422,6 +480,17 @@ function AdvancedModal({
                             currentLabel={current("specialization") || undefined}
                             onSelect={setFilter}
                             placeholder="None"
+                            availabilityUrl="/api/cards/specializations"
+                            crossFilters={{
+                                keywords: current("keyword") || undefined,
+                                subtypes: current("subtype") || undefined,
+                                talent: current("talent") || undefined,
+                                fusion: current("fusion") || undefined,
+                                class: current("class") || undefined,
+                                artVariation: current("artVariation") || undefined,
+                                set: current("set") || undefined,
+                                edition: current("edition") || undefined,
+                            }}
                         />
                         <PillGroup
                             label="Art Variation"
@@ -441,6 +510,9 @@ function AdvancedModal({
                                 keywords: current("keyword") || undefined,
                                 subtypes: current("subtype") || undefined,
                                 talent: current("talent") || undefined,
+                                fusion: current("fusion") || undefined,
+                                specialization: current("specialization") || undefined,
+                                class: current("class") || undefined,
                                 set: current("set") || undefined,
                                 edition: current("edition") || undefined,
                             }}
@@ -481,16 +553,21 @@ function AdvancedModal({
 // PillGroup — for small lists, with optional dynamic availability
 // ────────────────────────────────────────────────────────────────
 function PillGroup({
-    label, items, filterKey, current, onToggle, availabilityUrl, crossFilters,
+    label, items, filterKey, current, onToggle, multiSelect = false,
+    availabilityUrl, crossFilters, collectionOverride,
 }: {
     label: string;
     items: { value: string; label: string }[];
     filterKey: FilterKey;
     current: string;
     onToggle: (key: FilterKey, value: string) => void;
+    multiSelect?: boolean;
     availabilityUrl?: string;
     crossFilters?: Record<string, string | undefined>;
+    /** When set, grays out any item whose value is not in this Set (collection mode). */
+    collectionOverride?: Set<string>;
 }) {
+    const selectedValues = multiSelect ? new Set(current.split(",").filter(Boolean)) : null;
     const [availableValues, setAvailableValues] = useState<Set<string> | null>(null);
 
     // Stable serialisation of crossFilters for useEffect dependency
@@ -502,8 +579,9 @@ function PillGroup({
         : "";
 
     useEffect(() => {
+        // Skip API fetching when collectionOverride is provided
+        if (collectionOverride !== undefined) { setAvailableValues(null); return; }
         if (!availabilityUrl) { setAvailableValues(null); return; }
-        // Only fetch when there's at least one active cross-filter
         if (!crossFilterKey) { setAvailableValues(null); return; }
 
         const controller = new AbortController();
@@ -512,7 +590,7 @@ function PillGroup({
             .then((data: string[]) => setAvailableValues(new Set(data)))
             .catch(() => { });
         return () => controller.abort();
-    }, [availabilityUrl, crossFilterKey]);
+    }, [availabilityUrl, crossFilterKey, collectionOverride]);
 
     return (
         <div>
@@ -521,8 +599,17 @@ function PillGroup({
             </span>
             <div className="flex flex-wrap gap-1.5">
                 {items.map((item) => {
-                    const isSelected = current === item.value;
-                    const isUnavailable = availableValues !== null && !isSelected && !availableValues.has(item.value);
+                    const isSelected = multiSelect
+                        ? (selectedValues?.has(item.value) ?? false)
+                        : current === item.value;
+
+                    // Availability: collectionOverride takes priority over API-fetched availableValues
+                    const isUnavailable = isSelected
+                        ? false
+                        : collectionOverride !== undefined
+                            ? !collectionOverride.has(item.value)
+                            : availableValues !== null && !availableValues.has(item.value);
+
                     return (
                         <button
                             key={item.value}
@@ -550,7 +637,7 @@ function PillGroup({
 // ────────────────────────────────────────────────────────────────
 function SearchablePillGroup({
     label, items, filterKey, current, onToggle, multiSelect, availabilityUrl,
-    crossFilters,
+    crossFilters, collectionOverride,
 }: {
     label: string;
     items: { value: string; label: string }[];
@@ -560,6 +647,7 @@ function SearchablePillGroup({
     multiSelect?: boolean;
     availabilityUrl?: string;
     crossFilters?: Record<string, string | undefined>;
+    collectionOverride?: Set<string>;
 }) {
     const [search, setSearch] = useState("");
     const [availableValues, setAvailableValues] = useState<Set<string> | null>(null);
@@ -579,13 +667,13 @@ function SearchablePillGroup({
 
     // Fetch available values when selection or cross-filter changes
     useEffect(() => {
+        if (collectionOverride !== undefined) { setAvailableValues(null); return; }
         if (!multiSelect || !availabilityUrl) { setAvailableValues(null); return; }
         const selectedArr = Array.from(selectedSet);
         if (selectedArr.length === 0 && !crossFilterKey) { setAvailableValues(null); return; }
 
         const params = new URLSearchParams();
         if (selectedArr.length > 0) params.set("selected", selectedArr.join(","));
-        // Append all cross-filter params
         if (crossFilters) {
             for (const [k, v] of Object.entries(crossFilters)) {
                 if (v) params.set(k, v);
@@ -600,24 +688,25 @@ function SearchablePillGroup({
             .then((data: string[]) => setAvailableValues(new Set(data)))
             .catch(() => { });
         return () => controller.abort();
-    }, [selectedSet, multiSelect, availabilityUrl, crossFilterKey, crossFilters]);
+    }, [selectedSet, multiSelect, availabilityUrl, crossFilterKey, crossFilters, collectionOverride]);
 
     const filtered = useMemo(() => {
         let list = items;
         if (!search) {
             // When we have availability data, show selected first, then available, then unavailable
-            if (availableValues) {
+            const effectiveAvailable = collectionOverride ?? availableValues;
+            if (effectiveAvailable) {
                 list = [
                     ...items.filter((i) => selectedSet.has(i.value)),
-                    ...items.filter((i) => !selectedSet.has(i.value) && availableValues.has(i.value)),
-                    ...items.filter((i) => !selectedSet.has(i.value) && !availableValues.has(i.value)),
+                    ...items.filter((i) => !selectedSet.has(i.value) && effectiveAvailable.has(i.value)),
+                    ...items.filter((i) => !selectedSet.has(i.value) && !effectiveAvailable.has(i.value)),
                 ];
             }
             return list;
         }
         const q = search.toLowerCase();
         return items.filter((i) => i.label.toLowerCase().includes(q));
-    }, [items, search, availableValues, selectedSet]);
+    }, [items, search, availableValues, selectedSet, collectionOverride]);
 
     return (
         <div>
@@ -639,7 +728,8 @@ function SearchablePillGroup({
                 <div className="flex flex-wrap gap-1.5">
                     {filtered.map((item) => {
                         const isSelected = selectedSet.has(item.value);
-                        const isAvailable = !availableValues || availableValues.has(item.value) || isSelected;
+                        const effectiveAvailable = collectionOverride ?? availableValues;
+                        const isAvailable = !effectiveAvailable || effectiveAvailable.has(item.value) || isSelected;
                         return (
                             <button
                                 key={item.value}
@@ -672,6 +762,7 @@ function SearchablePillGroup({
 // ────────────────────────────────────────────────────────────────
 function SearchableSelect({
     label, items, filterKey, current, currentLabel, onSelect, availabilityUrl, crossFilters, placeholder,
+    collectionOverride,
 }: {
     label: string;
     items: { value: string; label: string }[];
@@ -682,6 +773,7 @@ function SearchableSelect({
     availabilityUrl?: string;
     crossFilters?: Record<string, string | undefined>;
     placeholder?: string;
+    collectionOverride?: Set<string>;
 }) {
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -697,6 +789,7 @@ function SearchableSelect({
         : "";
 
     useEffect(() => {
+        if (collectionOverride !== undefined) { setAvailableValues(null); return; }
         if (!availabilityUrl) { setAvailableValues(null); return; }
         if (!crossFilterKey) { setAvailableValues(null); return; }
         const controller = new AbortController();
@@ -705,7 +798,7 @@ function SearchableSelect({
             .then((data: string[]) => setAvailableValues(new Set(data)))
             .catch(() => { });
         return () => controller.abort();
-    }, [availabilityUrl, crossFilterKey]);
+    }, [availabilityUrl, crossFilterKey, collectionOverride]);
 
     useEffect(() => {
         if (!open) return;
@@ -728,6 +821,9 @@ function SearchableSelect({
     const displayLabel = current
         ? currentLabel || items.find((i) => i.value === current)?.label || current
         : "";
+
+    // Effective availability: collectionOverride wins over API-fetched
+    const effectiveAvailable = collectionOverride ?? availableValues;
 
     return (
         <div ref={ref} className="relative">
@@ -781,7 +877,10 @@ function SearchableSelect({
                             {placeholder || `All ${label}s`}
                         </button>
                         {filtered.map((item) => {
-                            const isUnavailable = availableValues !== null && current !== item.value && !availableValues.has(item.value);
+                            const isUnavailable = effectiveAvailable !== null
+                                && effectiveAvailable !== undefined
+                                && current !== item.value
+                                && !effectiveAvailable.has(item.value);
                             return (
                                 <button
                                     key={item.value}
@@ -861,7 +960,7 @@ function pitchLabel(p: string): string {
     return colors[p] || p;
 }
 
-function getDisplayValue(key: FilterKey, value: string, options: FilterOptions): string {
+function getDisplayValue(key: string, value: string, options: FilterOptions): string {
     if (key === "set") return options.sets.find((s) => s.set_code === value)?.name || value;
     if (key === "edition") return options.editions.find((e) => e.unique_id === value)?.name || value;
     return value;

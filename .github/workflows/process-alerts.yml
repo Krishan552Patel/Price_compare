@@ -1,0 +1,24 @@
+name: Daily Price Alert Digest
+
+on:
+  schedule:
+    # Runs at 02:00 UTC daily — after the midnight scrape has settled
+    - cron: "0 2 * * *"
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  process-alerts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger alert processing
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "${{ secrets.NEXTAUTH_URL }}/api/alerts/process" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          echo "Response status: $response"
+          if [ "$response" != "200" ]; then
+            echo "Alert processing failed with status $response"
+            exit 1
+          fi
+          echo "Alert digest sent successfully"

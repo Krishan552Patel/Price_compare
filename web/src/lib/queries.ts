@@ -7,6 +7,7 @@ import type {
   PriceHistoryPoint,
   FilterOptions,
   SearchResult,
+  TrendingCard,
   CardCondition,
 } from "./types";
 
@@ -314,13 +315,14 @@ export async function getFilterOptions(): Promise<FilterOptions> {
       args: [],
     }),
     // Expand card_keywords JSON array — deduplicate by stripping trailing numbers (e.g. "Opt 1","Opt 2" → "Opt")
-    // Exclude "* Specialization" keywords — they have their own filter
+    // Exclude "* Specialization" and fusion element keywords — they have their own filters
     db.execute({
       sql: `SELECT DISTINCT regexp_replace(kw.value, ' \\d+$', '') AS keyword
             FROM cards c,
             json_array_elements_text(${jsonArrayExpr("c.card_keywords")}) AS kw(value)
             WHERE kw.value IS NOT NULL AND kw.value <> ''
               AND kw.value NOT LIKE '%Specialization'
+              AND kw.value NOT IN ('Fusion', 'Earth', 'Ice', 'Lightning')
             ORDER BY keyword`,
       args: [],
     }),
@@ -511,12 +513,16 @@ export async function browseCards(params: {
       );
       args.push(params.talent);
     }
-    // Fusion filter (Earth, Ice, Lightning) — checks types array
+    // Fusion filter (Earth, Ice, Lightning) — checks types array, supports multi-select
     if (params.fusion) {
-      conditions.push(
-        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) tr WHERE tr = ?)`
-      );
-      args.push(params.fusion);
+      const fusions = params.fusion.split(",").map((s) => s.trim()).filter(Boolean);
+      if (fusions.length > 0) {
+        const fusionConds = fusions.map(() =>
+          `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) tr WHERE tr = ?)`
+        ).join(" AND ");
+        conditions.push(`(${fusionConds})`);
+        args.push(...fusions);
+      }
     }
     // Specialization filter — checks card_keywords for "<hero> Specialization"
     if (params.specialization) {
@@ -720,12 +726,87 @@ export async function getStats(): Promise<{
   };
 }
 
+// ────────────────────────────────────────────────────────────────
+// Cross-filter helpers
+// ────────────────────────────────────────────────────────────────
+interface CrossFilters {
+  keywords?: string[]; subtypes?: string[]; talent?: string;
+  fusion?: string[]; specialization?: string; class?: string;
+  artVariation?: string; set?: string; edition?: string;
+}
+
+/** Append card-level cross-filter conditions shared by all getAvailable* functions. */
+function applyCrossFilters(cf: CrossFilters | undefined, conditions: string[], args: string[]) {
+  if (!cf) return;
+  if (cf.keywords) {
+    for (const kw of cf.keywords) {
+      conditions.push(
+        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.card_keywords")}) k WHERE k.value = ?)`
+      );
+      args.push(kw);
+    }
+  }
+  if (cf.subtypes) {
+    for (const st of cf.subtypes) {
+      conditions.push(
+        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) s WHERE s.value = ?)`
+      );
+      args.push(st);
+    }
+  }
+  if (cf.talent) {
+    conditions.push(
+      `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) tt WHERE tt.value = ?)`
+    );
+    args.push(cf.talent);
+  }
+  if (cf.fusion) {
+    for (const f of cf.fusion) {
+      conditions.push(
+        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) ft WHERE ft.value = ?)`
+      );
+      args.push(f);
+    }
+  }
+  if (cf.specialization) {
+    conditions.push(
+      `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.card_keywords")}) sp WHERE sp.value = ?)`
+    );
+    args.push(`${cf.specialization} Specialization`);
+  }
+  if (cf.class) {
+    conditions.push(
+      `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) cl WHERE cl.value = ?)`
+    );
+    args.push(cf.class);
+  }
+}
+
+/** Append printing-level cross-filter conditions. Returns conditions for a printings subquery. */
+function applyPrintCrossFilters(cf: CrossFilters | undefined, conditions: string[], args: string[], printAlias = "px") {
+  if (!cf) return;
+  const printConds: string[] = [];
+  if (cf.artVariation) {
+    printConds.push(
+      `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr(`${printAlias}.art_variations`)}) av WHERE av = ?)`
+    );
+    args.push(cf.artVariation);
+  }
+  if (cf.set) { printConds.push(`${printAlias}.set_id = ?`); args.push(cf.set); }
+  if (cf.edition) { printConds.push(`${printAlias}.edition = ?`); args.push(cf.edition); }
+  if (printConds.length > 0) {
+    conditions.push(
+      `EXISTS (SELECT 1 FROM printings ${printAlias} WHERE ${printAlias}.card_unique_id = c.unique_id AND ${printConds.join(" AND ")})`
+    );
+  }
+}
+
 /**
- * Returns subtypes that co-occur with ALL selected subtypes, keywords, talent, and artVariation.
+ * Returns subtypes that co-occur with ALL selected subtypes and cross-filters.
  */
 export async function getAvailableSubtypes(
   selected: string[],
-  crossFilters?: { keywords?: string[]; talent?: string; artVariation?: string; set?: string; edition?: string }
+  crossFilters?: CrossFilters
 ): Promise<string[]> {
   try {
     const conditions: string[] = [];
@@ -737,35 +818,8 @@ export async function getAvailableSubtypes(
       );
       args.push(st);
     }
-    if (crossFilters?.keywords) {
-      for (const kw of crossFilters.keywords) {
-        conditions.push(
-          `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.card_keywords")}) k WHERE k.value = ?)`
-        );
-        args.push(kw);
-      }
-    }
-    if (crossFilters?.talent) {
-      conditions.push(
-        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) tt WHERE tt.value = ?)`
-      );
-      args.push(crossFilters.talent);
-    }
-    // Printing-level cross-filters
-    const printConds: string[] = [];
-    if (crossFilters?.artVariation) {
-      printConds.push(
-        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("px.art_variations")}) av WHERE av = ?)`
-      );
-      args.push(crossFilters.artVariation);
-    }
-    if (crossFilters?.set) { printConds.push("px.set_id = ?"); args.push(crossFilters.set); }
-    if (crossFilters?.edition) { printConds.push("px.edition = ?"); args.push(crossFilters.edition); }
-    if (printConds.length > 0) {
-      conditions.push(
-        `EXISTS (SELECT 1 FROM printings px WHERE px.card_unique_id = c.unique_id AND ${printConds.join(" AND ")})`
-      );
-    }
+    applyCrossFilters(crossFilters, conditions, args);
+    applyPrintCrossFilters(crossFilters, conditions, args);
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const sql = `
@@ -784,11 +838,11 @@ export async function getAvailableSubtypes(
 }
 
 /**
- * Returns keywords that co-occur with ALL selected keywords, subtypes, talent, and artVariation.
+ * Returns keywords that co-occur with ALL selected keywords and cross-filters.
  */
 export async function getAvailableKeywords(
   selected: string[],
-  crossFilters?: { subtypes?: string[]; talent?: string; artVariation?: string; set?: string; edition?: string }
+  crossFilters?: CrossFilters
 ): Promise<string[]> {
   try {
     const conditions: string[] = [];
@@ -800,38 +854,12 @@ export async function getAvailableKeywords(
       );
       args.push(kw);
     }
-    if (crossFilters?.subtypes) {
-      for (const st of crossFilters.subtypes) {
-        conditions.push(
-          `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) t WHERE t.value = ?)`
-        );
-        args.push(st);
-      }
-    }
-    if (crossFilters?.talent) {
-      conditions.push(
-        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) tt WHERE tt.value = ?)`
-      );
-      args.push(crossFilters.talent);
-    }
-    // Printing-level cross-filters
-    const printConds: string[] = [];
-    if (crossFilters?.artVariation) {
-      printConds.push(
-        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("px.art_variations")}) av WHERE av = ?)`
-      );
-      args.push(crossFilters.artVariation);
-    }
-    if (crossFilters?.set) { printConds.push("px.set_id = ?"); args.push(crossFilters.set); }
-    if (crossFilters?.edition) { printConds.push("px.edition = ?"); args.push(crossFilters.edition); }
-    if (printConds.length > 0) {
-      conditions.push(
-        `EXISTS (SELECT 1 FROM printings px WHERE px.card_unique_id = c.unique_id AND ${printConds.join(" AND ")})`
-      );
-    }
+    applyCrossFilters(crossFilters, conditions, args);
+    applyPrintCrossFilters(crossFilters, conditions, args);
 
-    // Always exclude "* Specialization" keywords — they have their own filter
+    // Always exclude "* Specialization" and fusion element keywords — they have their own filters
     conditions.push("kw.value NOT LIKE '%Specialization'");
+    conditions.push("kw.value NOT IN ('Fusion', 'Earth', 'Ice', 'Lightning')");
     const where = `WHERE ${conditions.join(" AND ")}`;
     const sql = `
       SELECT DISTINCT regexp_replace(kw.value, ' \\d+$', '') as keyword
@@ -856,44 +884,18 @@ const TALENT_NAMES = [
 /**
  * Returns talents that exist on cards matching the given cross-filters.
  */
+/**
+ * Returns talents that exist on cards matching the given cross-filters.
+ */
 export async function getAvailableTalents(
-  crossFilters?: { keywords?: string[]; subtypes?: string[]; artVariation?: string; set?: string; edition?: string }
+  crossFilters?: CrossFilters
 ): Promise<string[]> {
   try {
     const conditions: string[] = [];
     const args: string[] = [];
 
-    if (crossFilters?.keywords) {
-      for (const kw of crossFilters.keywords) {
-        conditions.push(
-          `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.card_keywords")}) k WHERE k.value = ?)`
-        );
-        args.push(kw);
-      }
-    }
-    if (crossFilters?.subtypes) {
-      for (const st of crossFilters.subtypes) {
-        conditions.push(
-          `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) s WHERE s.value = ?)`
-        );
-        args.push(st);
-      }
-    }
-    // Printing-level cross-filters
-    const printConds: string[] = [];
-    if (crossFilters?.artVariation) {
-      printConds.push(
-        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("px.art_variations")}) av WHERE av = ?)`
-      );
-      args.push(crossFilters.artVariation);
-    }
-    if (crossFilters?.set) { printConds.push("px.set_id = ?"); args.push(crossFilters.set); }
-    if (crossFilters?.edition) { printConds.push("px.edition = ?"); args.push(crossFilters.edition); }
-    if (printConds.length > 0) {
-      conditions.push(
-        `EXISTS (SELECT 1 FROM printings px WHERE px.card_unique_id = c.unique_id AND ${printConds.join(" AND ")})`
-      );
-    }
+    applyCrossFilters(crossFilters, conditions, args);
+    applyPrintCrossFilters(crossFilters, conditions, args);
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const talentPlaceholders = TALENT_NAMES.map(() => "?").join(", ");
@@ -916,37 +918,20 @@ export async function getAvailableTalents(
 /**
  * Returns art variation codes that exist on printings matching the given cross-filters.
  */
+/**
+ * Returns art variation codes that exist on printings matching the given cross-filters.
+ */
 export async function getAvailableArtVariations(
-  crossFilters?: { keywords?: string[]; subtypes?: string[]; talent?: string; set?: string; edition?: string }
+  crossFilters?: CrossFilters
 ): Promise<string[]> {
   try {
     const conditions: string[] = [];
     const args: string[] = [];
+
+    applyCrossFilters(crossFilters, conditions, args);
+
     // Printing-level conditions that apply to the same printing row
     const printConds: string[] = [];
-
-    if (crossFilters?.keywords) {
-      for (const kw of crossFilters.keywords) {
-        conditions.push(
-          `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.card_keywords")}) k WHERE k.value = ?)`
-        );
-        args.push(kw);
-      }
-    }
-    if (crossFilters?.subtypes) {
-      for (const st of crossFilters.subtypes) {
-        conditions.push(
-          `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) s WHERE s.value = ?)`
-        );
-        args.push(st);
-      }
-    }
-    if (crossFilters?.talent) {
-      conditions.push(
-        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) t WHERE t.value = ?)`
-      );
-      args.push(crossFilters.talent);
-    }
     if (crossFilters?.set) { printConds.push("p.set_id = ?"); args.push(crossFilters.set); }
     if (crossFilters?.edition) { printConds.push("p.edition = ?"); args.push(crossFilters.edition); }
 
@@ -973,35 +958,18 @@ export async function getAvailableArtVariations(
 /**
  * Returns sets that have printings matching the given cross-filters.
  */
+/**
+ * Returns sets that have printings matching the given cross-filters.
+ */
 export async function getAvailableSets(
-  crossFilters?: { keywords?: string[]; subtypes?: string[]; talent?: string; artVariation?: string; edition?: string }
+  crossFilters?: CrossFilters
 ): Promise<string[]> {
   try {
     const conditions: string[] = [];
     const args: string[] = [];
 
-    if (crossFilters?.keywords) {
-      for (const kw of crossFilters.keywords) {
-        conditions.push(
-          `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.card_keywords")}) k WHERE k.value = ?)`
-        );
-        args.push(kw);
-      }
-    }
-    if (crossFilters?.subtypes) {
-      for (const st of crossFilters.subtypes) {
-        conditions.push(
-          `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) s WHERE s.value = ?)`
-        );
-        args.push(st);
-      }
-    }
-    if (crossFilters?.talent) {
-      conditions.push(
-        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) t WHERE t.value = ?)`
-      );
-      args.push(crossFilters.talent);
-    }
+    applyCrossFilters(crossFilters, conditions, args);
+
     if (crossFilters?.artVariation) {
       conditions.push(
         `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("p.art_variations")}) av WHERE av = ?)`
@@ -1031,35 +999,18 @@ export async function getAvailableSets(
 /**
  * Returns editions that have printings matching the given cross-filters.
  */
+/**
+ * Returns editions that have printings matching the given cross-filters.
+ */
 export async function getAvailableEditions(
-  crossFilters?: { keywords?: string[]; subtypes?: string[]; talent?: string; artVariation?: string; set?: string }
+  crossFilters?: CrossFilters
 ): Promise<string[]> {
   try {
     const conditions: string[] = [];
     const args: string[] = [];
 
-    if (crossFilters?.keywords) {
-      for (const kw of crossFilters.keywords) {
-        conditions.push(
-          `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.card_keywords")}) k WHERE k.value = ?)`
-        );
-        args.push(kw);
-      }
-    }
-    if (crossFilters?.subtypes) {
-      for (const st of crossFilters.subtypes) {
-        conditions.push(
-          `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) s WHERE s.value = ?)`
-        );
-        args.push(st);
-      }
-    }
-    if (crossFilters?.talent) {
-      conditions.push(
-        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) t WHERE t.value = ?)`
-      );
-      args.push(crossFilters.talent);
-    }
+    applyCrossFilters(crossFilters, conditions, args);
+
     if (crossFilters?.artVariation) {
       conditions.push(
         `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("p.art_variations")}) av WHERE av = ?)`
@@ -1082,6 +1033,279 @@ export async function getAvailableEditions(
     return result.rows.map((r: Record<string, unknown>) => r.edition as string);
   } catch (error) {
     console.error("Failed to get available editions:", error);
+    return [];
+  }
+}
+
+const FUSION_NAMES = ["Earth", "Ice", "Lightning"];
+
+/**
+ * Returns fusion elements that exist on cards matching the given cross-filters.
+ */
+export async function getAvailableFusions(
+  crossFilters?: CrossFilters
+): Promise<string[]> {
+  try {
+    const conditions: string[] = [];
+    const args: string[] = [];
+
+    applyCrossFilters(crossFilters, conditions, args);
+    applyPrintCrossFilters(crossFilters, conditions, args);
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const fusionPlaceholders = FUSION_NAMES.map(() => "?").join(", ");
+
+    const sql = `
+      SELECT DISTINCT t.value as fusion
+      FROM cards c, json_array_elements_text(${jsonArrayExpr("c.types")}) AS t(value)
+      ${where ? where + " AND" : "WHERE"} t.value IN (${fusionPlaceholders})
+      ORDER BY t.value
+    `;
+
+    const result = await db.execute({ sql, args: [...args, ...FUSION_NAMES] });
+    return result.rows.map((r: Record<string, unknown>) => r.fusion as string);
+  } catch (error) {
+    console.error("Failed to get available fusions:", error);
+    return [];
+  }
+}
+
+// ============================================================
+// TRENDING
+// ============================================================
+
+const VALID_DAYS = [7, 14, 30, 90] as const;
+type TrendingDays = (typeof VALID_DAYS)[number];
+
+export async function getTrendingCards(params: {
+  days?: number;
+  direction?: "up" | "down" | "both";
+  minMove?: number;
+  minPrice?: number;
+  maxPrice?: number;
+  rarity?: string;
+  foiling?: string;
+  set?: string;
+  edition?: string;
+  class?: string;
+}): Promise<TrendingCard[]> {
+  try {
+    const {
+      direction = "both",
+      minMove = 1,
+      minPrice = 0,
+      maxPrice = 999999,
+    } = params;
+
+    // Validate days against whitelist to safely interpolate into SQL
+    const safeDays: TrendingDays = VALID_DAYS.includes(params.days as TrendingDays)
+      ? (params.days as TrendingDays)
+      : 7;
+
+    const conditions: string[] = [];
+    const args: (string | number)[] = [];
+
+    // Direction
+    if (direction === "up") conditions.push("(pc.current_price - pp.past_price) > 0");
+    if (direction === "down") conditions.push("(pc.current_price - pp.past_price) < 0");
+
+    // Min dollar movement
+    conditions.push("ABS(pc.current_price - pp.past_price) >= ?");
+    args.push(minMove);
+
+    // Price range
+    if (minPrice > 0) {
+      conditions.push("pc.current_price >= ?");
+      args.push(minPrice);
+    }
+    if (maxPrice < 999999) {
+      conditions.push("pc.current_price <= ?");
+      args.push(maxPrice);
+    }
+
+    // Printing-level filters
+    if (params.rarity) { conditions.push("p.rarity = ?"); args.push(params.rarity); }
+    if (params.foiling) { conditions.push("p.foiling = ?"); args.push(params.foiling); }
+    if (params.set) { conditions.push("p.set_id = ?"); args.push(params.set); }
+    if (params.edition) { conditions.push("p.edition = ?"); args.push(params.edition); }
+
+    // Card-level class filter
+    if (params.class) {
+      conditions.push(
+        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) t WHERE t = ?)`
+      );
+      args.push(params.class);
+    }
+
+    const whereExtra = conditions.length > 0 ? `AND ${conditions.join(" AND ")}` : "";
+
+    // safeDays is always a whitelist integer — safe to interpolate directly
+    const sql = `
+      WITH price_past AS (
+        SELECT DISTINCT ON (ph.printing_unique_id)
+          ph.printing_unique_id,
+          ph.price_cad AS past_price
+        FROM price_history ph
+        WHERE ph.condition = 'NM'
+          AND ph.in_stock = 1
+          AND ph.scraped_date >= CURRENT_DATE - INTERVAL '${safeDays} days'
+          AND ph.scraped_date < CURRENT_DATE
+          AND ph.price_cad > 0
+        ORDER BY ph.printing_unique_id, ph.scraped_date ASC
+      ),
+      price_current AS (
+        SELECT
+          rp.printing_unique_id,
+          MIN(rp.price_cad) AS current_price
+        FROM retailer_products rp
+        WHERE rp.in_stock = 1
+          AND rp.condition = 'NM'
+        GROUP BY rp.printing_unique_id
+      )
+      SELECT
+        c.unique_id AS card_unique_id,
+        c.name AS card_name,
+        c.type_text,
+        p.unique_id AS printing_unique_id,
+        p.card_id,
+        p.set_id,
+        s.name AS set_name,
+        p.rarity,
+        p.foiling,
+        p.edition,
+        p.image_url,
+        pc.current_price,
+        pp.past_price,
+        (pc.current_price - pp.past_price) AS price_change,
+        ROUND(((pc.current_price - pp.past_price) / pp.past_price * 100)::numeric, 1) AS percent_change
+      FROM price_past pp
+      JOIN price_current pc ON pp.printing_unique_id = pc.printing_unique_id
+      JOIN printings p ON pp.printing_unique_id = p.unique_id
+      JOIN cards c ON p.card_unique_id = c.unique_id
+      LEFT JOIN sets s ON p.set_id = s.set_code
+      WHERE 1=1
+      ${whereExtra}
+      ORDER BY ABS(price_change) DESC
+      LIMIT 200
+    `;
+
+    const result = await db.execute({ sql, args });
+    return result.rows.map((row) => ({
+      card_unique_id: row.card_unique_id as string,
+      card_name: row.card_name as string,
+      type_text: row.type_text as string | null,
+      image_url: row.image_url as string | null,
+      printing_unique_id: row.printing_unique_id as string,
+      card_id: row.card_id as string,
+      set_id: row.set_id as string,
+      set_name: row.set_name as string | null,
+      rarity: row.rarity as string | null,
+      foiling: row.foiling as string | null,
+      edition: row.edition as string | null,
+      current_price: Number(row.current_price),
+      past_price: Number(row.past_price),
+      price_change: Number(row.price_change),
+      percent_change: Number(row.percent_change),
+    }));
+  } catch (err) {
+    console.error("[getTrendingCards] Error:", err);
+    return [];
+  }
+}
+
+// ============================================================
+// COLLECTION — current lowest NM price per specific printing
+// ============================================================
+
+/**
+ * Returns the lowest in-stock NM price for each printing_unique_id.
+ * Used by the collection page — more accurate than card-level pricing
+ * because Alpha Cold Foil and Unlimited Standard have different values.
+ */
+export async function getLowestNMPricesByPrinting(
+  printingUniqueIds: string[]
+): Promise<Record<string, number>> {
+  if (printingUniqueIds.length === 0) return {};
+  try {
+    const placeholders = printingUniqueIds.map(() => "?").join(", ");
+    const result = await db.execute({
+      sql: `SELECT rp.printing_unique_id, MIN(rp.price_cad) as lowest_price
+            FROM retailer_products rp
+            WHERE rp.in_stock = 1
+              AND rp.condition = 'NM'
+              AND rp.printing_unique_id IN (${placeholders})
+            GROUP BY rp.printing_unique_id`,
+      args: printingUniqueIds,
+    });
+    const map: Record<string, number> = {};
+    for (const row of result.rows) {
+      map[row.printing_unique_id as string] = Number(row.lowest_price);
+    }
+    return map;
+  } catch (err) {
+    console.error("[getLowestNMPricesByPrinting] Error:", err);
+    return {};
+  }
+}
+
+// ============================================================
+// WATCHLIST — current lowest NM price for a card
+// ============================================================
+
+export async function getLowestNMPrices(
+  cardUniqueIds: string[]
+): Promise<Record<string, number>> {
+  if (cardUniqueIds.length === 0) return {};
+  try {
+    const placeholders = cardUniqueIds.map(() => "?").join(", ");
+    const result = await db.execute({
+      sql: `SELECT p.card_unique_id, MIN(rp.price_cad) as lowest_price
+            FROM retailer_products rp
+            JOIN printings p ON rp.printing_unique_id = p.unique_id
+            WHERE rp.in_stock = 1
+              AND rp.condition = 'NM'
+              AND p.card_unique_id IN (${placeholders})
+            GROUP BY p.card_unique_id`,
+      args: cardUniqueIds,
+    });
+    const map: Record<string, number> = {};
+    for (const row of result.rows) {
+      map[row.card_unique_id as string] = Number(row.lowest_price);
+    }
+    return map;
+  } catch (err) {
+    console.error("[getLowestNMPrices] Error:", err);
+    return {};
+  }
+}
+
+/**
+ * Returns hero names (for specialization) that exist on cards matching the given cross-filters.
+ */
+export async function getAvailableSpecializations(
+  crossFilters?: CrossFilters
+): Promise<string[]> {
+  try {
+    const conditions: string[] = [];
+    const args: string[] = [];
+
+    applyCrossFilters(crossFilters, conditions, args);
+    applyPrintCrossFilters(crossFilters, conditions, args);
+
+    conditions.push("kw.value LIKE '%Specialization'");
+    const where = `WHERE ${conditions.join(" AND ")}`;
+
+    const sql = `
+      SELECT DISTINCT regexp_replace(kw.value, ' Specialization$', '') AS hero
+      FROM cards c, json_array_elements_text(${jsonArrayExpr("c.card_keywords")}) AS kw(value)
+      ${where}
+      ORDER BY hero
+    `;
+
+    const result = await db.execute({ sql, args });
+    return result.rows.map((r: Record<string, unknown>) => r.hero as string);
+  } catch (error) {
+    console.error("Failed to get available specializations:", error);
     return [];
   }
 }

@@ -6,6 +6,9 @@ export async function GET(request: NextRequest) {
     const keywords = searchParams.get("keywords") || undefined;
     const subtypes = searchParams.get("subtypes") || undefined;
     const talent = searchParams.get("talent") || undefined;
+    const fusion = searchParams.get("fusion") || undefined;
+    const specialization = searchParams.get("specialization") || undefined;
+    const cardClass = searchParams.get("class") || undefined;
     const artVariation = searchParams.get("artVariation") || undefined;
     const edition = searchParams.get("edition") || undefined;
 
@@ -16,6 +19,9 @@ export async function GET(request: NextRequest) {
         keywords: keywordsArray,
         subtypes: subtypesArray,
         talent,
+        fusion: fusion ? fusion.split(",").filter(Boolean) : undefined,
+        specialization,
+        class: cardClass,
         artVariation,
         edition,
     });

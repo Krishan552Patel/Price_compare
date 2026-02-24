@@ -30,23 +30,56 @@ export function LegalBadge({
   );
 }
 
-export function RarityBadge({ rarity }: { rarity: string | null }) {
-  if (!rarity) return null;
-  const rarityColors: Record<string, string> = {
-    common: "bg-gray-600 text-gray-200",
-    rare: "bg-blue-700 text-blue-200",
-    super_rare: "bg-purple-700 text-purple-200",
-    majestic: "bg-yellow-600 text-yellow-100",
-    legendary: "bg-orange-600 text-orange-100",
-    fabled: "bg-red-700 text-red-200",
-    marvel: "bg-pink-700 text-pink-200",
+export function RarityBadge({ rarity, rarityName }: { rarity: string | null; rarityName?: string | null }) {
+  if (!rarity && !rarityName) return null;
+
+  // Map rarity unique_id to styles and abbreviations
+  const rarityConfig: Record<string, { classes: string; abbrev: string; fullName: string }> = {
+    C: { classes: "bg-gray-600 text-gray-200", abbrev: "C", fullName: "Common" },
+    R: { classes: "bg-blue-700 text-blue-200", abbrev: "R", fullName: "Rare" },
+    S: { classes: "bg-purple-700 text-purple-200", abbrev: "SR", fullName: "Super Rare" },
+    M: { classes: "bg-yellow-600 text-yellow-100", abbrev: "M", fullName: "Majestic" },
+    L: { classes: "bg-orange-600 text-orange-100", abbrev: "L", fullName: "Legendary" },
+    F: { classes: "bg-red-700 text-red-200", abbrev: "F", fullName: "Fabled" },
+    V: { classes: "bg-purple-500 text-white", abbrev: "MV", fullName: "Marvel" },
+    T: { classes: "bg-teal-700 text-teal-200", abbrev: "T", fullName: "Token" },
+    P: { classes: "bg-amber-700 text-amber-200", abbrev: "P", fullName: "Promo" },
   };
-  const displayName = rarity.replace(/_/g, " ");
+
+  // Also support full name keys (from rarity_name or legacy rarity values)
+  const nameToKey: Record<string, string> = {
+    common: "C",
+    rare: "R",
+    super_rare: "S",
+    "super rare": "S",
+    majestic: "M",
+    legendary: "L",
+    fabled: "F",
+    marvel: "V",
+    token: "T",
+    promo: "P",
+  };
+
+  const key = rarity && rarityConfig[rarity]
+    ? rarity
+    : nameToKey[(rarity || "").toLowerCase()] || nameToKey[(rarityName || "").toLowerCase()];
+
+  const config = key ? rarityConfig[key] : null;
+
+  if (!config) {
+    return (
+      <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-600 text-gray-200">
+        {rarityName || rarity}
+      </span>
+    );
+  }
+
   return (
     <span
-      className={`inline-block px-2 py-0.5 rounded text-xs font-medium capitalize ${rarityColors[rarity] || "bg-gray-600 text-gray-200"}`}
+      className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${config.classes}`}
+      title={config.fullName}
     >
-      {displayName}
+      {config.abbrev}
     </span>
   );
 }

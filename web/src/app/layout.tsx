@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Navbar from "@/components/Navbar";
+import SessionProvider from "@/components/SessionProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -29,22 +30,24 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Navbar />
-        <main className="min-h-screen">{children}</main>
-        <footer className="border-t border-gray-800 py-6 text-center text-sm text-gray-500">
-          <p>
-            Card data from{" "}
-            <a
-              href="https://github.com/the-fab-cube/flesh-and-blood-cards"
-              className="text-gray-400 hover:text-white"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              the-fab-cube
-            </a>
-            . Prices scraped from Canadian retailers.
-          </p>
-        </footer>
+        <SessionProvider>
+          <Navbar />
+          <main className="min-h-screen">{children}</main>
+          <footer className="border-t border-gray-800 py-6 text-center text-sm text-gray-500">
+            <p>
+              Card data from{" "}
+              <a
+                href="https://github.com/the-fab-cube/flesh-and-blood-cards"
+                className="text-gray-400 hover:text-white"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                the-fab-cube
+              </a>
+              . Prices scraped from Canadian retailers.
+            </p>
+          </footer>
+        </SessionProvider>
       </body>
     </html>
   );

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import CardImage from "./CardImage";
 import { PitchDot } from "./Badge";
+import WatchlistButton from "./WatchlistButton";
 import type { Card } from "@/lib/types";
 
 type Density = "few" | "regular" | "many" | "most";
@@ -33,11 +34,11 @@ export default function CardGrid({
   return (
     <div className={`grid ${densityClasses[density]} gap-3`}>
       {cards.map((card) => (
-        <Link
+        <div
           key={card.unique_id}
-          href={`/cards/${card.unique_id}`}
-          className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden hover:border-gray-600 transition group"
+          className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden hover:border-gray-600 transition group relative"
         >
+          <Link href={`/cards/${card.unique_id}`} className="block">
             <div className="aspect-[5/7] relative overflow-hidden">
               <CardImage
                 src={card.image_url}
@@ -76,7 +77,18 @@ export default function CardGrid({
                 </div>
               </div>
             )}
-        </Link>
+          </Link>
+          {/* Watchlist button — positioned over the card image */}
+          <div className="absolute top-2 right-2 z-10">
+            <WatchlistButton
+              cardUniqueId={card.unique_id}
+              cardName={card.name}
+              imageUrl={card.image_url}
+              priceAtAdd={card.lowest_price ?? null}
+              variant="icon"
+            />
+          </div>
+        </div>
       ))}
     </div>
   );
