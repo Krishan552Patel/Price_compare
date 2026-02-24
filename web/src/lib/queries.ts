@@ -1141,12 +1141,11 @@ export async function getTrendingCards(params: {
 
     // safeDays is always a whitelist integer — safe to interpolate directly
     const sql = `
-      WITH earliest_date AS (
-        -- Find the earliest scrape date available for each printing within the window.
-        -- We use this to anchor the "past price" to the START of the period.
-        SELECT
-          printing_unique_id,
-          MIN(scraped_date) AS d
+      WITH retailer_earliest AS (
+        -- Earliest date each *retailer* had each printing in stock within the window.
+        -- Keyed by (retailer_slug, printing_unique_id) so we can anchor each
+        -- retailer's "past price" to the very start of their history in the window.
+        SELECT retailer_slug, printing_unique_id, MIN(scraped_date) AS d
         FROM price_history
         WHERE condition = 'NM'
           AND in_stock = 1
@@ -1154,31 +1153,47 @@ export async function getTrendingCards(params: {
           AND scraped_date < CURRENT_DATE
           AND price_cad > 0
           AND printing_unique_id IS NOT NULL
-        GROUP BY printing_unique_id
+        GROUP BY retailer_slug, printing_unique_id
       ),
-      price_past AS (
-        -- Use MIN(price_cad) on the earliest date so we pick the cheapest retailer,
-        -- consistent with price_current which also uses MIN. This avoids false
-        -- trends caused by outlier/erroneous listings at one retailer.
-        SELECT ph.printing_unique_id, MIN(ph.price_cad) AS past_price
+      retailer_past AS (
+        -- MIN price per (retailer, printing) on that retailer's earliest date.
+        SELECT ph.retailer_slug, ph.printing_unique_id, MIN(ph.price_cad) AS past_price
         FROM price_history ph
-        JOIN earliest_date ed
-          ON ph.printing_unique_id = ed.printing_unique_id
-         AND ph.scraped_date = ed.d
+        JOIN retailer_earliest re
+          ON ph.retailer_slug = re.retailer_slug
+         AND ph.printing_unique_id = re.printing_unique_id
+         AND ph.scraped_date = re.d
         WHERE ph.condition = 'NM'
           AND ph.in_stock = 1
           AND ph.price_cad > 0
-        GROUP BY ph.printing_unique_id
+        GROUP BY ph.retailer_slug, ph.printing_unique_id
+      ),
+      price_past AS (
+        -- For each printing, MIN past_price across retailers that ALSO have a
+        -- current in-stock listing. Retailers that only appeared in the past
+        -- (since discontinued) or only appear now (new entrants) are excluded,
+        -- so we always compare the SAME set of stores over time.
+        SELECT rp.printing_unique_id, MIN(rp.past_price) AS past_price
+        FROM retailer_past rp
+        JOIN retailer_products rc
+          ON rp.retailer_slug = rc.retailer_slug
+         AND rp.printing_unique_id = rc.printing_unique_id
+        WHERE rc.in_stock = 1
+          AND rc.condition = 'NM'
+        GROUP BY rp.printing_unique_id
       ),
       price_current AS (
-        SELECT
-          rp.printing_unique_id,
-          MIN(rp.price_cad) AS current_price
-        FROM retailer_products rp
-        WHERE rp.in_stock = 1
-          AND rp.condition = 'NM'
-          AND rp.printing_unique_id IS NOT NULL
-        GROUP BY rp.printing_unique_id
+        -- For each printing, MIN current price across the SAME retailers that had
+        -- a past listing. Mirrors price_past for a like-for-like comparison.
+        SELECT rc.printing_unique_id, MIN(rc.price_cad) AS current_price
+        FROM retailer_products rc
+        JOIN retailer_past rp
+          ON rc.retailer_slug = rp.retailer_slug
+         AND rc.printing_unique_id = rp.printing_unique_id
+        WHERE rc.in_stock = 1
+          AND rc.condition = 'NM'
+          AND rc.printing_unique_id IS NOT NULL
+        GROUP BY rc.printing_unique_id
       )
       SELECT
         c.unique_id AS card_unique_id,
