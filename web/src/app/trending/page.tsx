@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import CardImage from "@/components/CardImage";
 import WatchlistButton from "@/components/WatchlistButton";
@@ -61,7 +61,7 @@ function formatCAD(n: number) {
 // ── Main Page ────────────────────────────────────────────────
 
 export default function TrendingPage() {
-  // Filters
+  // Filters (raw — update on every keystroke for number inputs)
   const [days, setDays] = useState<7 | 14 | 30 | 90>(7);
   const [direction, setDirection] = useState<"up" | "down" | "both">("both");
   const [minMove, setMinMove] = useState("1.00");
@@ -72,6 +72,34 @@ export default function TrendingPage() {
   const [set, setSet] = useState("");
   const [cardClass, setCardClass] = useState("");
   const [showMoreFilters, setShowMoreFilters] = useState(false);
+
+  // Debounced values for number inputs — only update (and trigger fetch) 400ms
+  // after the user stops typing, so we don't hammer the API on every keystroke.
+  const [debouncedMinMove, setDebouncedMinMove] = useState("1.00");
+  const [debouncedMinPrice, setDebouncedMinPrice] = useState("");
+  const [debouncedMaxPrice, setDebouncedMaxPrice] = useState("");
+
+  const minMoveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const minPriceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxPriceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (minMoveTimer.current) clearTimeout(minMoveTimer.current);
+    minMoveTimer.current = setTimeout(() => setDebouncedMinMove(minMove), 400);
+    return () => { if (minMoveTimer.current) clearTimeout(minMoveTimer.current); };
+  }, [minMove]);
+
+  useEffect(() => {
+    if (minPriceTimer.current) clearTimeout(minPriceTimer.current);
+    minPriceTimer.current = setTimeout(() => setDebouncedMinPrice(minPrice), 400);
+    return () => { if (minPriceTimer.current) clearTimeout(minPriceTimer.current); };
+  }, [minPrice]);
+
+  useEffect(() => {
+    if (maxPriceTimer.current) clearTimeout(maxPriceTimer.current);
+    maxPriceTimer.current = setTimeout(() => setDebouncedMaxPrice(maxPrice), 400);
+    return () => { if (maxPriceTimer.current) clearTimeout(maxPriceTimer.current); };
+  }, [maxPrice]);
 
   // Data
   const [cards, setCards] = useState<TrendingCard[]>([]);
@@ -86,15 +114,16 @@ export default function TrendingPage() {
       .catch(() => {});
   }, []);
 
-  // Fetch trending data whenever filters change
+  // Fetch trending data — only fires when debounced number values settle,
+  // but buttons (days, direction, rarity, foiling, set, class) still trigger immediately.
   const fetchTrending = useCallback(() => {
     setLoading(true);
     const p = new URLSearchParams();
     p.set("days", String(days));
     p.set("direction", direction);
-    p.set("minMove", minMove || "0");
-    if (minPrice) p.set("minPrice", minPrice);
-    if (maxPrice) p.set("maxPrice", maxPrice);
+    p.set("minMove", debouncedMinMove || "0");
+    if (debouncedMinPrice) p.set("minPrice", debouncedMinPrice);
+    if (debouncedMaxPrice) p.set("maxPrice", debouncedMaxPrice);
     if (rarity) p.set("rarity", rarity);
     if (foiling) p.set("foiling", foiling);
     if (set) p.set("set", set);
@@ -104,7 +133,7 @@ export default function TrendingPage() {
       .then((r) => r.json())
       .then((data) => { setCards(data); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [days, direction, minMove, minPrice, maxPrice, rarity, foiling, set, cardClass]);
+  }, [days, direction, debouncedMinMove, debouncedMinPrice, debouncedMaxPrice, rarity, foiling, set, cardClass]);
 
   useEffect(() => {
     fetchTrending();
