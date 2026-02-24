@@ -1185,7 +1185,7 @@ export async function getTrendingCards(params: {
       LEFT JOIN sets s ON p.set_id = s.set_code
       WHERE 1=1
       ${whereExtra}
-      ORDER BY ABS(price_change) DESC
+      ORDER BY ABS(pc.current_price - pp.past_price) DESC
       LIMIT 200
     `;
 
