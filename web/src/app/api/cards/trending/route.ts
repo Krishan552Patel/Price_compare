@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import { unstable_cache } from "next/cache";
 import { getTrendingCards } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
+
+// Cache DB results server-side for 1 hour per unique param combination.
+// This is a secondary cache behind the CDN (s-maxage=3600) — it helps when
+// the CDN is cold (new filter combo) or the app is running locally.
+const getCachedTrending = unstable_cache(
+  getTrendingCards,
+  ["trending-cards"],
+  { revalidate: 3600 }
+);
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
@@ -17,7 +27,7 @@ export async function GET(req: NextRequest) {
   const edition = sp.get("edition") || undefined;
   const cardClass = sp.get("class") || undefined;
 
-  const cards = await getTrendingCards({
+  const cards = await getCachedTrending({
     days,
     direction,
     minMove,
