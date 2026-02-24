@@ -6,6 +6,9 @@ export async function GET(request: NextRequest) {
     const selected = searchParams.get("selected");
     const subtypes = searchParams.get("subtypes");
     const talent = searchParams.get("talent") || undefined;
+    const fusion = searchParams.get("fusion") || undefined;
+    const specialization = searchParams.get("specialization") || undefined;
+    const cardClass = searchParams.get("class") || undefined;
     const artVariation = searchParams.get("artVariation") || undefined;
     const set = searchParams.get("set") || undefined;
     const edition = searchParams.get("edition") || undefined;
@@ -20,6 +23,9 @@ export async function GET(request: NextRequest) {
     const keywords = await getAvailableKeywords(selectedArray, {
         subtypes: subtypesArray.length > 0 ? subtypesArray : undefined,
         talent,
+        fusion: fusion ? fusion.split(",").filter(Boolean) : undefined,
+        specialization,
+        class: cardClass,
         artVariation,
         set,
         edition,

@@ -6,10 +6,13 @@ import {
   getCardPrices,
   getPrintingParent,
 } from "@/lib/queries";
+import { auth } from "@/auth";
 import CardImage from "@/components/CardImage";
-import { ColorBadge, LegalBadge, PitchDot, FoilingBadge } from "@/components/Badge";
+import { ColorBadge, LegalBadge, PitchDot, FoilingBadge, RarityBadge } from "@/components/Badge";
 import PriceTable from "@/components/PriceTable";
 import PriceChart from "@/components/PriceChart";
+import WatchlistButton from "@/components/WatchlistButton";
+import CardActions from "@/components/CardActions";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +26,10 @@ export default async function CardDetailPage({
   // 1. Try to find the card directly
   let card = await getCard(uniqueId);
   let preSelectedPrintingId: string | undefined;
+  // Tracks the printing the URL actually points to — used for the display image.
+  // preSelectedPrintingId may be overridden to an in-stock printing for the price
+  // table, but we always want to show the image the user explicitly navigated to.
+  let urlPrintingId: string | undefined;
 
   // 2. If not found, check if it's a printing ID
   if (!card) {
@@ -30,31 +37,46 @@ export default async function CardDetailPage({
     if (parentId) {
       card = await getCard(parentId);
       preSelectedPrintingId = uniqueId;
+      urlPrintingId = uniqueId;
     }
   }
 
   // 3. If still not found, 404
   if (!card) notFound();
 
-  // 4. Fetch related data using the CANONICAL card ID
-  // Fetch ALL prices (including out of stock) so user can see full picture
-  const [printings, prices] = await Promise.all([
+  // 4. Fetch related data + session in parallel
+  const [printings, prices, session] = await Promise.all([
     getCardPrintings(card.unique_id),
     getCardPrices(card.unique_id, false), // false = include out of stock
+    auth(),
   ]);
 
+  const isLoggedIn = !!session?.user?.id;
+
   // If a specific printing was requested but has no in-stock prices,
-  // try to find a printing that DOES have in-stock prices
+  // override preSelectedPrintingId for the price table (but keep urlPrintingId
+  // pointing at the original so the image stays correct).
   const inStockPrices = prices.filter((p) => p.in_stock);
   if (preSelectedPrintingId) {
     const hasInStockForSelected = inStockPrices.some(
       (p) => p.printing_unique_id === preSelectedPrintingId
     );
     if (!hasInStockForSelected && inStockPrices.length > 0) {
-      // Auto-select the first printing with in-stock prices
+      // Redirect price table to first in-stock printing, but image stays on URL printing
       preSelectedPrintingId = inStockPrices[0].printing_unique_id;
     }
   }
+
+  // Resolve the image: prefer the URL-requested printing's image, fall back to card default
+  const urlPrinting = urlPrintingId
+    ? printings.find((p) => p.unique_id === urlPrintingId)
+    : null;
+  const displayImageUrl = urlPrinting?.image_url || card.image_url;
+
+  // Lowest NM in-stock price (for watchlist snapshot + alert)
+  const lowestNMPrice = prices
+    .filter((p) => p.in_stock && p.condition === "NM")
+    .reduce<number | null>((min, p) => (min === null || p.price_cad < min ? p.price_cad : min), null);
 
   // Extract unique artists from all printings
   const artists = Array.from(
@@ -77,7 +99,7 @@ export default async function CardDetailPage({
         {/* LEFT COLUMN — Card Image + Stats (sticky on desktop) */}
         <div className="lg:sticky lg:top-20 lg:self-start">
           <CardImage
-            src={card.image_url}
+            src={displayImageUrl}
             alt={card.name}
             width={300}
             height={420}
@@ -157,8 +179,8 @@ export default async function CardDetailPage({
                         <td className="py-2 px-2">
                           <FoilingBadge foiling={p.foiling} foilingName={p.foiling_name} />
                         </td>
-                        <td className="py-2 px-2 text-gray-300">
-                          {p.rarity_name || p.rarity || "—"}
+                        <td className="py-2 px-2">
+                          <RarityBadge rarity={p.rarity} rarityName={p.rarity_name} />
                         </td>
                       </tr>
                     ))}
@@ -189,12 +211,67 @@ export default async function CardDetailPage({
           </section>
         </div>
 
-        {/* RIGHT COLUMN — Metadata (desktop only name here) */}
+        {/* RIGHT COLUMN — Metadata */}
         <div>
-          {/* Desktop: Card name + type */}
+          {/* Desktop: Card name + type + action buttons */}
           <div className="hidden lg:block mb-6">
             <h1 className="text-2xl font-bold mb-1">{card.name}</h1>
             <p className="text-gray-400 text-sm">{card.type_text}</p>
+            <div className="mt-3">
+              <WatchlistButton
+                cardUniqueId={card.unique_id}
+                cardName={card.name}
+                imageUrl={displayImageUrl}
+                priceAtAdd={lowestNMPrice}
+                variant="pill"
+              />
+            </div>
+            {/* Collection + Alert actions — logged-in users only */}
+            {isLoggedIn ? (
+              <CardActions
+                printings={printings}
+                cardUniqueId={card.unique_id}
+                cardName={card.name}
+                imageUrl={displayImageUrl}
+                currentNMPrice={lowestNMPrice}
+              />
+            ) : (
+              <div className="mt-2">
+                <Link
+                  href="/login"
+                  className="flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-lg text-sm font-medium bg-gray-800/60 border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-600 transition"
+                >
+                  Login to track collection &amp; alerts
+                </Link>
+              </div>
+            )}
+          </div>
+
+          {/* Mobile: Watchlist + action buttons */}
+          <div className="lg:hidden mb-4 space-y-2">
+            <WatchlistButton
+              cardUniqueId={card.unique_id}
+              cardName={card.name}
+              imageUrl={displayImageUrl}
+              priceAtAdd={lowestNMPrice}
+              variant="pill"
+            />
+            {isLoggedIn ? (
+              <CardActions
+                printings={printings}
+                cardUniqueId={card.unique_id}
+                cardName={card.name}
+                imageUrl={displayImageUrl}
+                currentNMPrice={lowestNMPrice}
+              />
+            ) : (
+              <Link
+                href="/login"
+                className="flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-lg text-sm font-medium bg-gray-800/60 border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-600 transition"
+              >
+                Login to track collection &amp; alerts
+              </Link>
+            )}
           </div>
 
           {/* Card Text */}
@@ -266,10 +343,7 @@ export default async function CardDetailPage({
               </h3>
               <div className="flex flex-wrap gap-2">
                 {artists.map((artist) => (
-                  <span
-                    key={artist}
-                    className="text-sm text-gray-300"
-                  >
+                  <span key={artist} className="text-sm text-gray-300">
                     {artist}
                   </span>
                 ))}

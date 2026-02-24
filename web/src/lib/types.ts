@@ -111,3 +111,29 @@ export interface SearchResult {
   type_text: string | null;
   image_url: string | null;
 }
+
+export interface TrendingCard {
+  card_unique_id: string;
+  card_name: string;
+  type_text: string | null;
+  image_url: string | null;
+  printing_unique_id: string;
+  card_id: string;
+  set_id: string;
+  set_name: string | null;
+  rarity: string | null;
+  foiling: string | null;
+  edition: string | null;
+  current_price: number;
+  past_price: number;
+  price_change: number;
+  percent_change: number;
+}
+
+export interface WatchlistEntry {
+  cardUniqueId: string;
+  cardName: string;
+  imageUrl: string | null;
+  priceAtAdd: number | null;
+  addedAt: string; // ISO timestamp
+}

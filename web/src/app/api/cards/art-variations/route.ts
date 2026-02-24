@@ -6,18 +6,24 @@ export async function GET(request: NextRequest) {
     const keywords = p.get("keywords") || undefined;
     const subtypes = p.get("subtypes") || undefined;
     const talent = p.get("talent") || undefined;
+    const fusion = p.get("fusion") || undefined;
+    const specialization = p.get("specialization") || undefined;
+    const cardClass = p.get("class") || undefined;
     const set = p.get("set") || undefined;
     const edition = p.get("edition") || undefined;
 
-    const crossFilters: { keywords?: string[]; subtypes?: string[]; talent?: string; set?: string; edition?: string } = {};
+    const crossFilters: Record<string, unknown> = {};
     if (keywords) crossFilters.keywords = keywords.split(",");
     if (subtypes) crossFilters.subtypes = subtypes.split(",");
     if (talent) crossFilters.talent = talent;
+    if (fusion) crossFilters.fusion = fusion.split(",").filter(Boolean);
+    if (specialization) crossFilters.specialization = specialization;
+    if (cardClass) crossFilters.class = cardClass;
     if (set) crossFilters.set = set;
     if (edition) crossFilters.edition = edition;
 
     const available = await getAvailableArtVariations(
-        Object.keys(crossFilters).length > 0 ? crossFilters : undefined
+        Object.keys(crossFilters).length > 0 ? crossFilters as Parameters<typeof getAvailableArtVariations>[0] : undefined
     );
 
     return NextResponse.json(available, {
