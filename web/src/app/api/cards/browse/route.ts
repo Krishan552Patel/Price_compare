@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { unstable_cache } from "next/cache";
 import { browseCards } from "@/lib/queries";
+
+// Server-side cache (1hr) per unique filter combo, on top of CDN s-maxage=3600.
+// Prevents repeat DB hits for the same query when CDN is cold (new filter combo,
+// dev environment, or simultaneous concurrent requests hitting the same params).
+const getCachedBrowse = unstable_cache(
+  browseCards,
+  ["browse-cards"],
+  { revalidate: 3600 }
+);
 
 export async function GET(request: NextRequest) {
   const p = request.nextUrl.searchParams;
@@ -30,7 +40,7 @@ export async function GET(request: NextRequest) {
   const defense = p.get("defense") || undefined;
 
   try {
-    const result = await browseCards({
+    const result = await getCachedBrowse({
       query, sort, page, pageSize,
       set, rarity, foiling, edition,
       color, class: cardClass, pitch,

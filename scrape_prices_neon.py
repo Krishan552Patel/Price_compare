@@ -413,7 +413,16 @@ def main():
                 log(f"  Done: {stats['variants_scraped']} variants, "
                     f"{stats['matched_printings']} matched, {duration}s")
 
-            # 4. Summary (2 queries total)
+            # 4. Refresh trending materialized views (concurrent — no table lock)
+            log(f"\n[4/5] Refreshing trending materialized views...")
+            for days in [7, 14, 30, 90]:
+                mv = f"trending_mv_{days}d"
+                log(f"  Refreshing {mv}...")
+                cur.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {mv}")
+                conn.commit()
+            log("  Done")
+
+            # 5. Summary (2 queries total)
             log(f"\n{'='*60}")
             log("  DONE - SUMMARY")
             log(f"{'='*60}")

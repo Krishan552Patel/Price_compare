@@ -21,7 +21,27 @@
       "Bash(python:*)",
       "Bash(pip install:*)",
       "Bash(del:*)",
-      "Bash(del \"C:\\\\Users\\\\Krishan\\\\Desktop\\\\fab-cards-db\\\\web\\\\src\\\\components\\\\FilterDrawer.tsx\")"
+      "Bash(del \"C:\\\\Users\\\\Krishan\\\\Desktop\\\\fab-cards-db\\\\web\\\\src\\\\components\\\\FilterDrawer.tsx\")",
+      "Bash(npx tsc:*)",
+      "Bash(npx tsx:*)",
+      "Bash(/c/Users/Krishan/Desktop/fab-cards-db/web/src/app/login/page.tsx:*)",
+      "Bash(python3:*)",
+      "Bash(printf:*)",
+      "Bash(echo:*)",
+      "Bash(node --version:*)",
+      "Bash(python3.exe:*)",
+      "Bash(python.exe --version:*)",
+      "Bash(py:*)",
+      "Bash(tee:*)",
+      "Bash(/dev/null:*)",
+      "Bash(node -e:*)",
+      "Bash(Start-Process npm -ArgumentList \"run\",\"dev\" -WindowStyle Hidden)",
+      "Bash(Start-Sleep 10)",
+      "Bash(Invoke-WebRequest -Uri \"http://localhost:3000/api/cards/trending?days=7&minMove=1\" -UseBasicParsing)",
+      "Bash(Select-Object -ExpandProperty Content)",
+      "Bash(ConvertFrom-Json)",
+      "Bash(Select-Object -First 3)",
+      "Bash(C:/Python312/python.exe:*)"
     ]
   }
 }
