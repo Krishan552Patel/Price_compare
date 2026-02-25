@@ -11,7 +11,7 @@ import os
 import requests
 import psycopg
 from psycopg.rows import tuple_row
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date as date_type, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -69,6 +69,9 @@ EDITION_MAP = {
     "Unlimited": "U",
     "Regular": "N",
 }
+
+# Purge history older than this many days (keep 91 so 90-day trending is intact)
+HISTORY_RETENTION_DAYS = 91
 
 
 def log(msg=""):
@@ -228,7 +231,48 @@ def resolve_printing(card_index, card_id, foiling_key, edition_key):
     )
 
 
-def process_retailer(slug, info, card_index, today):
+def build_last_price_index(cur):
+    """
+    Load the most-recent price_history row for every (retailer_slug, variant_id).
+    Used to decide whether a new history row needs to be written this scrape.
+    Returns: dict  (retailer_slug, variant_id) -> {price, in_stock, condition, date}
+    """
+    cur.execute("""
+        SELECT DISTINCT ON (retailer_slug, shopify_variant_id)
+            retailer_slug,
+            shopify_variant_id,
+            price_cad,
+            in_stock,
+            condition,
+            scraped_date
+        FROM price_history
+        ORDER BY retailer_slug, shopify_variant_id, scraped_date DESC
+    """)
+    index = {}
+    for retailer_slug, variant_id, price_cad, in_stock, condition, scraped_date in cur.fetchall():
+        index[(retailer_slug, str(variant_id))] = {
+            "price":     float(price_cad or 0),
+            "in_stock":  int(in_stock or 0),
+            "condition": condition or "NM",
+            "date":      scraped_date,   # datetime.date from psycopg
+        }
+    return index
+
+
+def purge_old_history(cur):
+    """
+    Delete price_history rows older than HISTORY_RETENTION_DAYS.
+    Runs after every scrape so the table never grows beyond ~3 months.
+    Returns the number of rows deleted.
+    """
+    cur.execute(
+        "DELETE FROM price_history WHERE scraped_date < CURRENT_DATE - INTERVAL '%s days'",
+        (HISTORY_RETENTION_DAYS,)
+    )
+    return cur.rowcount
+
+
+def process_retailer(slug, info, card_index, today, last_prices):
     """
     Scrape one retailer and return (product_rows, history_rows, stats).
     All DB writes happen outside this function so they can be batched.
@@ -237,9 +281,12 @@ def process_retailer(slug, info, card_index, today):
     log(f"  Fetched {len(products)} products. Processing...")
 
     product_rows = []   # rows for retailer_products upsert
-    history_rows = []   # rows for price_history upsert
+    history_rows = []   # rows for price_history — written on first-seen or price change
+    history_skipped = 0 # unchanged rows suppressed
     matched = 0
     skipped = 0
+    today_date = date_type.fromisoformat(today)
+    yesterday   = (today_date - timedelta(days=1)).isoformat()
 
     for product in products:
         title = product.get("title", "")
@@ -285,15 +332,46 @@ def process_retailer(slug, info, card_index, today):
                 price_cad, compare_cad, available, sku, product_url,
                 printing_uid, raw_tags, condition,
             ))
-            history_rows.append((
-                slug, variant_id, title, variant_title,
-                price_cad, available, printing_uid, condition, today,
-            ))
+
+            # History strategy:
+            #   • First time seen        → write today's row (baseline)
+            #   • Price / stock changed  → write a "yesterday anchor" at the OLD price
+            #                              then today's row at the NEW price.
+            #                              The anchor keeps the pre-change value inside
+            #                              every trending window (7 / 14 / 30 / 90 d)
+            #                              so movements are always visible.
+            #   • No change              → skip entirely (no redundant rows)
+            last = last_prices.get((slug, variant_id))
+            if last is None:
+                # Never seen before — record the baseline
+                history_rows.append((
+                    slug, variant_id, title, variant_title,
+                    price_cad, available, printing_uid, condition, today,
+                ))
+            elif (
+                abs(price_cad - last["price"]) > 0.001
+                or available != last["in_stock"]
+                or condition != last["condition"]
+            ):
+                # Something changed — anchor the old price as of yesterday so the
+                # trending CTEs can find a "past" price even for the 7-day window.
+                history_rows.append((
+                    slug, variant_id, title, variant_title,
+                    last["price"], last["in_stock"], printing_uid, last["condition"], yesterday,
+                ))
+                history_rows.append((
+                    slug, variant_id, title, variant_title,
+                    price_cad, available, printing_uid, condition, today,
+                ))
+            else:
+                history_skipped += 1
 
     stats = {
-        "products_scraped": len(products) - skipped,
-        "variants_scraped": len(product_rows),
-        "matched_printings": matched,
+        "products_scraped":   len(products) - skipped,
+        "variants_scraped":   len(product_rows),
+        "matched_printings":  matched,
+        "history_written":    len(history_rows),
+        "history_skipped":    history_skipped,
     }
     return product_rows, history_rows, stats
 
@@ -372,7 +450,7 @@ def main():
             log("  Done")
 
             # 2. Load card index into memory (1 query, reused for all retailers)
-            log("\n[2/4] Loading card index...")
+            log("\n[2/5] Loading card index...")
             card_index = build_card_index(cur)
             log(f"  Loaded {len(card_index)} unique card_ids")
 
@@ -380,8 +458,13 @@ def main():
                 log("\n  ERROR: Card index is empty! Aborting.")
                 sys.exit(1)
 
-            # 3. Scrape + batch write each retailer
-            log("\n[3/4] Scraping retailers...")
+            # 3. Load last-known price snapshot (skip redundant history rows)
+            log("\n[3/5] Loading last price index...")
+            last_prices = build_last_price_index(cur)
+            log(f"  Loaded {len(last_prices):,} known variants")
+
+            # 4. Scrape + batch write each retailer
+            log("\n[4/5] Scraping retailers...")
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
             for slug, info in RETAILERS.items():
@@ -389,13 +472,14 @@ def main():
                 start_time = time.time()
 
                 product_rows, history_rows, stats = process_retailer(
-                    slug, info, card_index, today
+                    slug, info, card_index, today, last_prices
                 )
 
                 log(f"  Writing {len(product_rows)} product rows (batch)...")
                 batch_upsert_products(cur, product_rows)
 
-                log(f"  Writing {len(history_rows)} history rows (batch)...")
+                log(f"  Writing {len(history_rows)} history rows "
+                    f"({stats['history_skipped']:,} unchanged, skipped)...")
                 batch_upsert_history(cur, history_rows)
 
                 conn.commit()
@@ -411,10 +495,11 @@ def main():
                 conn.commit()
 
                 log(f"  Done: {stats['variants_scraped']} variants, "
-                    f"{stats['matched_printings']} matched, {duration}s")
+                    f"{stats['matched_printings']} matched, "
+                    f"{stats['history_written']} history rows written, {duration}s")
 
-            # 4. Refresh trending materialized views (concurrent — no table lock)
-            log(f"\n[4/5] Refreshing trending materialized views...")
+            # 5. Refresh trending materialized views (concurrent — no table lock)
+            log(f"\n[5/5] Refreshing trending materialized views...")
             for days in [7, 14, 30, 90]:
                 mv = f"trending_mv_{days}d"
                 log(f"  Refreshing {mv}...")
@@ -422,14 +507,22 @@ def main():
                 conn.commit()
             log("  Done")
 
-            # 5. Summary (2 queries total)
+            # 6. Purge history older than HISTORY_RETENTION_DAYS
+            log(f"\n[+] Purging price_history older than {HISTORY_RETENTION_DAYS} days...")
+            deleted = purge_old_history(cur)
+            conn.commit()
+            log(f"  Deleted {deleted:,} rows")
+
+            # 7. Summary
             log(f"\n{'='*60}")
             log("  DONE - SUMMARY")
             log(f"{'='*60}")
             cur.execute("SELECT COUNT(*) FROM retailer_products")
-            log(f"  Total retailer_products: {cur.fetchone()[0]}")
+            log(f"  Total retailer_products: {cur.fetchone()[0]:,}")
             cur.execute("SELECT COUNT(*) FROM retailer_products WHERE in_stock = 1")
-            log(f"  In-stock products: {cur.fetchone()[0]}")
+            log(f"  In-stock products:       {cur.fetchone()[0]:,}")
+            cur.execute("SELECT COUNT(*) FROM price_history")
+            log(f"  price_history rows:      {cur.fetchone()[0]:,}")
 
 
 if __name__ == "__main__":
