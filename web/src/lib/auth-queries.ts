@@ -406,11 +406,27 @@ export async function getAllActiveAlertsWithUsers(): Promise<ActiveAlertWithPric
 export async function bulkUpdateAlertPrices(
   updates: { id: string; last_price_seen: number; last_notified_at?: boolean }[]
 ): Promise<void> {
-  for (const u of updates) {
+  if (updates.length === 0) return;
+
+  // Single UPDATE for all last_price_seen values — one DB round-trip regardless
+  // of how many alerts exist, instead of N individual round-trips.
+  const valuePlaceholders = updates.map(() => "(?, ?::numeric)").join(", ");
+  const priceArgs = updates.flatMap((u) => [u.id, u.last_price_seen]);
+  await db.execute({
+    sql: `UPDATE price_alerts
+          SET last_price_seen = v.price
+          FROM (VALUES ${valuePlaceholders}) AS v(id, price)
+          WHERE price_alerts.id = v.id::uuid`,
+    args: priceArgs,
+  });
+
+  // Second single UPDATE only for triggered alerts (need last_notified_at = NOW())
+  const triggeredIds = updates.filter((u) => u.last_notified_at).map((u) => u.id);
+  if (triggeredIds.length > 0) {
+    const idPlaceholders = triggeredIds.map(() => "?::uuid").join(", ");
     await db.execute({
-      sql: `UPDATE price_alerts SET last_price_seen = ?${u.last_notified_at ? ", last_notified_at = NOW()" : ""}
-            WHERE id = ?`,
-      args: [u.last_price_seen, u.id],
+      sql: `UPDATE price_alerts SET last_notified_at = NOW() WHERE id IN (${idPlaceholders})`,
+      args: triggeredIds,
     });
   }
 }

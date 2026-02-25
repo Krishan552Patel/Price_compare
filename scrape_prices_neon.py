@@ -233,28 +233,26 @@ def resolve_printing(card_index, card_id, foiling_key, edition_key):
 
 def build_last_price_index(cur):
     """
-    Load the most-recent price_history row for every (retailer_slug, variant_id).
+    Load the current price snapshot for every (retailer_slug, variant_id).
     Used to decide whether a new history row needs to be written this scrape.
-    Returns: dict  (retailer_slug, variant_id) -> {price, in_stock, condition, date}
+
+    Reads from retailer_products (always ~170K rows, constant size) instead
+    of price_history (grows to millions of rows over time). retailer_products
+    already holds the most-recent price/stock/condition for every variant, so
+    this is both faster and avoids a full scan of the history table.
+
+    Returns: dict  (retailer_slug, variant_id) -> {price, in_stock, condition}
     """
     cur.execute("""
-        SELECT DISTINCT ON (retailer_slug, shopify_variant_id)
-            retailer_slug,
-            shopify_variant_id,
-            price_cad,
-            in_stock,
-            condition,
-            scraped_date
-        FROM price_history
-        ORDER BY retailer_slug, shopify_variant_id, scraped_date DESC
+        SELECT retailer_slug, shopify_variant_id, price_cad, in_stock, condition
+        FROM retailer_products
     """)
     index = {}
-    for retailer_slug, variant_id, price_cad, in_stock, condition, scraped_date in cur.fetchall():
+    for retailer_slug, variant_id, price_cad, in_stock, condition in cur.fetchall():
         index[(retailer_slug, str(variant_id))] = {
             "price":     float(price_cad or 0),
             "in_stock":  int(in_stock or 0),
             "condition": condition or "NM",
-            "date":      scraped_date,   # datetime.date from psycopg
         }
     return index
 
