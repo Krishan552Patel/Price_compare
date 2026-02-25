@@ -1097,133 +1097,67 @@ export async function getTrendingCards(params: {
       maxPrice = 999999,
     } = params;
 
-    // Validate days against whitelist to safely interpolate into SQL
+    // Validate days against whitelist — also determines which MV to query
     const safeDays: TrendingDays = VALID_DAYS.includes(params.days as TrendingDays)
       ? (params.days as TrendingDays)
       : 7;
+
+    // Use pre-computed materialized view instead of the 4-CTE chain.
+    // Each MV is refreshed by the scraper after every run (twice daily).
+    // safeDays is always a whitelisted integer — safe to interpolate.
+    const mv = `trending_mv_${safeDays}d`;
 
     const conditions: string[] = [];
     const args: (string | number)[] = [];
 
     // Direction
-    if (direction === "up") conditions.push("(pc.current_price - pp.past_price) > 0");
-    if (direction === "down") conditions.push("(pc.current_price - pp.past_price) < 0");
+    if (direction === "up")   conditions.push("t.price_change > 0");
+    if (direction === "down") conditions.push("t.price_change < 0");
 
     // Min dollar movement
-    conditions.push("ABS(pc.current_price - pp.past_price) >= ?");
+    conditions.push("ABS(t.price_change) >= ?");
     args.push(minMove);
 
     // Price range
-    if (minPrice > 0) {
-      conditions.push("pc.current_price >= ?");
-      args.push(minPrice);
-    }
-    if (maxPrice < 999999) {
-      conditions.push("pc.current_price <= ?");
-      args.push(maxPrice);
-    }
+    if (minPrice > 0)      { conditions.push("t.current_price >= ?"); args.push(minPrice); }
+    if (maxPrice < 999999) { conditions.push("t.current_price <= ?"); args.push(maxPrice); }
 
     // Printing-level filters
-    if (params.rarity) { conditions.push("p.rarity = ?"); args.push(params.rarity); }
-    if (params.foiling) { conditions.push("p.foiling = ?"); args.push(params.foiling); }
-    if (params.set) { conditions.push("p.set_id = ?"); args.push(params.set); }
-    if (params.edition) { conditions.push("p.edition = ?"); args.push(params.edition); }
+    if (params.rarity)  { conditions.push("t.rarity = ?");  args.push(params.rarity); }
+    if (params.foiling) { conditions.push("t.foiling = ?"); args.push(params.foiling); }
+    if (params.set)     { conditions.push("t.set_id = ?");  args.push(params.set); }
+    if (params.edition) { conditions.push("t.edition = ?"); args.push(params.edition); }
 
-    // Card-level class filter
+    // Card-level class filter (card_types stored in MV from cards.types)
     if (params.class) {
       conditions.push(
-        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("c.types")}) t WHERE t = ?)`
+        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("t.card_types")}) cl WHERE cl = ?)`
       );
       args.push(params.class);
     }
 
-    const whereExtra = conditions.length > 0 ? `AND ${conditions.join(" AND ")}` : "";
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    // safeDays is always a whitelist integer — safe to interpolate directly
     const sql = `
-      WITH retailer_earliest AS (
-        -- Earliest date each *retailer* had each printing in stock within the window.
-        -- Keyed by (retailer_slug, printing_unique_id) so we can anchor each
-        -- retailer's "past price" to the very start of their history in the window.
-        SELECT retailer_slug, printing_unique_id, MIN(scraped_date) AS d
-        FROM price_history
-        WHERE condition = 'NM'
-          AND in_stock = 1
-          AND scraped_date >= CURRENT_DATE - INTERVAL '${safeDays} days'
-          AND scraped_date < CURRENT_DATE
-          AND price_cad > 0
-          AND printing_unique_id IS NOT NULL
-        GROUP BY retailer_slug, printing_unique_id
-      ),
-      retailer_past AS (
-        -- MIN price per (retailer, printing) on that retailer's earliest date.
-        SELECT ph.retailer_slug, ph.printing_unique_id, MIN(ph.price_cad) AS past_price
-        FROM price_history ph
-        JOIN retailer_earliest re
-          ON ph.retailer_slug = re.retailer_slug
-         AND ph.printing_unique_id = re.printing_unique_id
-         AND ph.scraped_date = re.d
-        WHERE ph.condition = 'NM'
-          AND ph.in_stock = 1
-          AND ph.price_cad > 0
-        GROUP BY ph.retailer_slug, ph.printing_unique_id
-      ),
-      price_past AS (
-        -- For each printing, MIN past_price across retailers that ALSO have a
-        -- current in-stock listing. Retailers that only appeared in the past
-        -- (since discontinued) or only appear now (new entrants) are excluded,
-        -- so we always compare the SAME set of stores over time.
-        SELECT rp.printing_unique_id, MIN(rp.past_price) AS past_price
-        FROM retailer_past rp
-        JOIN retailer_products rc
-          ON rp.retailer_slug = rc.retailer_slug
-         AND rp.printing_unique_id = rc.printing_unique_id
-        WHERE rc.in_stock = 1
-          AND rc.condition = 'NM'
-        GROUP BY rp.printing_unique_id
-      ),
-      price_current AS (
-        -- For each printing, MIN current price across the SAME retailers that had
-        -- a past listing. Mirrors price_past for a like-for-like comparison.
-        SELECT rc.printing_unique_id, MIN(rc.price_cad) AS current_price
-        FROM retailer_products rc
-        JOIN retailer_past rp
-          ON rc.retailer_slug = rp.retailer_slug
-         AND rc.printing_unique_id = rp.printing_unique_id
-        WHERE rc.in_stock = 1
-          AND rc.condition = 'NM'
-          AND rc.printing_unique_id IS NOT NULL
-        GROUP BY rc.printing_unique_id
-      )
       SELECT
-        c.unique_id AS card_unique_id,
-        c.name AS card_name,
-        c.type_text,
-        p.unique_id AS printing_unique_id,
-        p.card_id,
-        p.set_id,
-        s.name AS set_name,
-        p.rarity,
-        p.foiling,
-        p.edition,
-        p.image_url,
-        pc.current_price,
-        pp.past_price,
-        (pc.current_price - pp.past_price) AS price_change,
-        ROUND(((pc.current_price - pp.past_price) / pp.past_price * 100)::numeric, 1) AS percent_change
-      FROM price_past pp
-      JOIN price_current pc ON pp.printing_unique_id = pc.printing_unique_id
-      JOIN printings p ON pp.printing_unique_id = p.unique_id
-      JOIN cards c ON p.card_unique_id = c.unique_id
-      LEFT JOIN sets s ON p.set_id = s.set_code
-      WHERE 1=1
-      ${whereExtra}
-      -- Sanity guard: scraper fallback sometimes maps a cheap Normal product to an
-      -- expensive Cold Foil printing_unique_id, producing fake 2000–7000% "moves".
-      -- A real price spike in FAB rarely exceeds 10× in a single window, so we cap
-      -- at ±1000% to suppress scraper noise while keeping genuine dramatic moves.
-      AND ((pc.current_price - pp.past_price) / pp.past_price * 100) BETWEEN -99 AND 1000
-      ORDER BY ABS(pc.current_price - pp.past_price) DESC
+        t.card_unique_id,
+        t.card_name,
+        t.type_text,
+        t.image_url,
+        t.printing_unique_id,
+        t.card_id,
+        t.set_id,
+        t.set_name,
+        t.rarity,
+        t.foiling,
+        t.edition,
+        t.current_price,
+        t.past_price,
+        t.price_change,
+        t.percent_change
+      FROM ${mv} t
+      ${whereClause}
+      ORDER BY ABS(t.price_change) DESC
       LIMIT 200
     `;
 

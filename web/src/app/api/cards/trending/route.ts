@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { unstable_cache } from "next/cache";
 import { getTrendingCards } from "@/lib/queries";
 
+// Run on Vercel's Edge network — eliminates Node.js cold start (~100-200ms)
+// and runs in a region close to the Neon DB for lower latency.
+// Neon's @neondatabase/serverless uses HTTP fetch, which is Edge-compatible.
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
-// Cache DB results server-side for 1 hour per unique param combination.
-// This is a secondary cache behind the CDN (s-maxage=3600) — it helps when
-// the CDN is cold (new filter combo) or the app is running locally.
+// Server-side cache (1hr) per unique filter combo, on top of the CDN cache.
+// Helps for: CDN cold misses, development, and concurrent identical requests.
 const getCachedTrending = unstable_cache(
   getTrendingCards,
   ["trending-cards"],
