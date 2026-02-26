@@ -1,0 +1,119 @@
+# ══════════════════════════════════════════════════════════════════════
+# grid_configs.yaml  —  Physical tray / bin layout definitions
+#
+# Each entry defines one tray configuration.
+# rows × cols  = total number of physical bins.
+# zones        = named groups of bins (used by sort_profiles.yaml to
+#                map sort groups → physical locations).
+# overflow_bin = where cards go when no zone matches.
+#
+# Bin addresses are [row, col] (0-indexed from top-left).
+#
+# ══════════════════════════════════════════════════════════════════════
+# PLUG IN:
+#   Adjust rows/cols to match your actual hardware tray dimensions.
+#   Adjust zone bin lists to match where you physically want each
+#   sort group deposited.
+#   Add or remove tray configs as needed.
+# ══════════════════════════════════════════════════════════════════════
+
+grids:
+
+  # ── 4×4  (16 bins) ── simple 4-zone layout ─────────────────────────
+  4x4:
+    rows: 4
+    cols: 4
+    description: "16-bin tray — good for a 4-rarity sort"
+    overflow_bin: [3, 3]
+    zones:
+      common:
+        label: "Common"
+        bins: [[0,0],[0,1],[0,2],[0,3]]
+      uncommon:
+        label: "Uncommon"
+        bins: [[1,0],[1,1],[1,2],[1,3]]
+      rare:
+        label: "Rare"
+        bins: [[2,0],[2,1],[2,2],[2,3]]
+      mythic:
+        label: "Mythic / Special"
+        bins: [[3,0],[3,1],[3,2],[3,3]]
+      review:
+        label: "Needs Review"
+        bins: [[3,3]]
+
+  # ── 4×16  (64 bins) ── rarity × color layout ───────────────────────
+  4x16:
+    rows: 4
+    cols: 16
+    description: "64-bin tray — rarity rows, color columns"
+    overflow_bin: [3, 15]
+    zones:
+      # Row 0 — Commons split by color (5 colours + colourless + multi + overflow)
+      common_white:     { label: "Common – White",      bins: [[0,0]] }
+      common_blue:      { label: "Common – Blue",       bins: [[0,1]] }
+      common_black:     { label: "Common – Black",      bins: [[0,2]] }
+      common_red:       { label: "Common – Red",        bins: [[0,3]] }
+      common_green:     { label: "Common – Green",      bins: [[0,4]] }
+      common_colorless: { label: "Common – Colourless", bins: [[0,5]] }
+      common_multi:     { label: "Common – Multi",      bins: [[0,6],[0,7]] }
+      # Row 1 — Uncommons
+      uncommon_white:     { label: "Uncommon – White",      bins: [[1,0]] }
+      uncommon_blue:      { label: "Uncommon – Blue",       bins: [[1,1]] }
+      uncommon_black:     { label: "Uncommon – Black",      bins: [[1,2]] }
+      uncommon_red:       { label: "Uncommon – Red",        bins: [[1,3]] }
+      uncommon_green:     { label: "Uncommon – Green",      bins: [[1,4]] }
+      uncommon_colorless: { label: "Uncommon – Colourless", bins: [[1,5]] }
+      uncommon_multi:     { label: "Uncommon – Multi",      bins: [[1,6],[1,7]] }
+      # Row 2 — Rares
+      rare_white:     { label: "Rare – White",      bins: [[2,0]] }
+      rare_blue:      { label: "Rare – Blue",       bins: [[2,1]] }
+      rare_black:     { label: "Rare – Black",      bins: [[2,2]] }
+      rare_red:       { label: "Rare – Red",        bins: [[2,3]] }
+      rare_green:     { label: "Rare – Green",      bins: [[2,4]] }
+      rare_colorless: { label: "Rare – Colourless", bins: [[2,5]] }
+      rare_multi:     { label: "Rare – Multi",      bins: [[2,6],[2,7]] }
+      # Row 3 — Mythics + special
+      mythic:         { label: "Mythic Rare",        bins: [[3,0],[3,1],[3,2],[3,3]] }
+      foil:           { label: "Foil (any rarity)",  bins: [[3,4],[3,5],[3,6],[3,7]] }
+      land:           { label: "Basic Land",         bins: [[3,8],[3,9]] }
+      high_value:     { label: "High Value (>$10)",  bins: [[3,10],[3,11]] }
+      review:         { label: "Needs Review",       bins: [[3,14],[3,15]] }
+
+  # ── 2×8  (16 bins) ── compact set-based layout ─────────────────────
+  2x8:
+    rows: 2
+    cols: 8
+    description: "16-bin compact tray — up to 14 sets + overflow + review"
+    overflow_bin: [1, 7]
+    zones:
+      # ── PLUG IN: replace set codes and labels with your actual sets ──
+      set_1:  { label: "Set 1 (PLUG IN set code)",  bins: [[0,0]] }
+      set_2:  { label: "Set 2 (PLUG IN set code)",  bins: [[0,1]] }
+      set_3:  { label: "Set 3 (PLUG IN set code)",  bins: [[0,2]] }
+      set_4:  { label: "Set 4 (PLUG IN set code)",  bins: [[0,3]] }
+      set_5:  { label: "Set 5 (PLUG IN set code)",  bins: [[0,4]] }
+      set_6:  { label: "Set 6 (PLUG IN set code)",  bins: [[0,5]] }
+      set_7:  { label: "Set 7 (PLUG IN set code)",  bins: [[0,6]] }
+      set_8:  { label: "Set 8 (PLUG IN set code)",  bins: [[0,7]] }
+      set_9:  { label: "Set 9 (PLUG IN set code)",  bins: [[1,0]] }
+      set_10: { label: "Set 10 (PLUG IN set code)", bins: [[1,1]] }
+      set_11: { label: "Set 11 (PLUG IN set code)", bins: [[1,2]] }
+      set_12: { label: "Set 12 (PLUG IN set code)", bins: [[1,3]] }
+      set_13: { label: "Set 13 (PLUG IN set code)", bins: [[1,4]] }
+      set_14: { label: "Set 14 (PLUG IN set code)", bins: [[1,5]] }
+      overflow: { label: "Overflow",      bins: [[1,6]] }
+      review:   { label: "Needs Review",  bins: [[1,7]] }
+
+  # ── 8×8  (64 bins) ── set × rarity matrix ──────────────────────────
+  8x8:
+    rows: 8
+    cols: 8
+    description: "64-bin tray — 8 sets across columns, rarities down rows"
+    overflow_bin: [7, 7]
+    # ── PLUG IN: fill in actual set codes for columns 0-7 ─────────────
+    # Zone naming convention: {set_code}_{rarity}  e.g. mon_common
+    # Add one zone per (set, rarity) combination you need.
+    zones:
+      review:    { label: "Needs Review", bins: [[7,7]] }
+      overflow:  { label: "Overflow",     bins: [[7,6]] }

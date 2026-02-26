@@ -1,0 +1,30 @@
+# Core dependencies
+psycopg2-binary>=2.9       # PostgreSQL driver (bridge/db_connector.py)
+pyyaml>=6.0                # Config file parsing
+
+# Optional — simulation visualisation
+matplotlib>=3.7            # render_plot() in virtual_tray.py
+numpy>=1.24                # used by render_plot()
+
+# Optional — testing
+pytest>=7.4
+
+# ════════════════════════════════════════════════════════════════
+# PLUG IN — Hardware dependencies (add when building real_interface.py):
+#
+# For Raspberry Pi GPIO control:
+#   RPi.GPIO>=0.7.1
+#   gpiozero>=2.0
+#
+# For serial / Arduino / CNC control:
+#   pyserial>=3.5
+#
+# For stepper motor control:
+#   RpiMotorLib>=2.6        # RPi stepper library
+#
+# For computer vision (if running CNN on same machine):
+#   torch>=2.0              # PyTorch (CNN inference)
+#   torchvision>=0.15
+#   pillow>=10.0            # image loading
+#   opencv-python>=4.8      # camera capture
+# ════════════════════════════════════════════════════════════════

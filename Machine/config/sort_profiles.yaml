@@ -1,0 +1,175 @@
+# ══════════════════════════════════════════════════════════════════════
+# sort_profiles.yaml  —  Sorting strategy definitions
+#
+# Each profile defines:
+#   sort_keys    : ordered list of card fields used to determine
+#                  which zone a card belongs to (first match wins).
+#   zone_rules   : maps sort-key values → zone name (must exist in
+#                  the chosen grid config).
+#   default_zone : zone to use when no rule matches (before overflow).
+#
+# The zone names here MUST match zone names in grid_configs.yaml.
+#
+# ══════════════════════════════════════════════════════════════════════
+# PLUG IN:
+#   Confirm the rarity strings your CNN returns match the keys below.
+#   Possible CNN rarity values depend on your card game:
+#     MTG  : "Common" | "Uncommon" | "Rare" | "Mythic Rare"
+#     FAB  : "C" | "R" | "S" | "M" | "L" | "F" | "V" | "T" | "P"
+#   Update the rarity_map values to match exactly.
+#
+#   Confirm colour values your CNN returns match the color_map keys.
+#   MTG colour strings : "W" | "U" | "B" | "R" | "G"  (single-char)
+#   or full words      : "White" | "Blue" | "Black" | "Red" | "Green"
+# ══════════════════════════════════════════════════════════════════════
+
+# ── PLUG IN: rarity string values your CNN returns ───────────────────
+rarity_map:
+  # MTG full-word rarities (default assumption):
+  "Common":     common
+  "Uncommon":   uncommon
+  "Rare":       rare
+  "Mythic Rare": mythic
+  "Basic Land": land
+  # MTG short codes (if your CNN returns these instead):
+  "C": common
+  "U": uncommon
+  "R": rare
+  "M": mythic
+  "L": land
+  # FAB rarities (uncomment if sorting FAB cards):
+  # "S": common       # Standard — FAB equivalent of common
+  # "R": rare
+  # "M": mythic
+  # "F": fabled
+  # "V": marvel
+  # "T": token
+
+# ── PLUG IN: colour string values your CNN returns ───────────────────
+color_map:
+  "W": white
+  "U": blue
+  "B": black
+  "R": red
+  "G": green
+  "White":     white
+  "Blue":      blue
+  "Black":     black
+  "Red":       red
+  "Green":     green
+  "Colorless": colorless
+  "":          colorless
+
+
+profiles:
+
+  # ────────────────────────────────────────────────────────────────────
+  # by_rarity  —  primary sort: rarity | recommended for 4×4 tray
+  # ────────────────────────────────────────────────────────────────────
+  by_rarity:
+    description: "Sort by rarity (Common / Uncommon / Rare / Mythic)"
+    compatible_grids: [4x4]
+    sort_keys: [rarity]
+    foil_override: false   # set true to send ALL foils to 'foil' zone first
+    zone_rules:
+      rarity:
+        common:   common
+        uncommon: uncommon
+        rare:     rare
+        mythic:   mythic
+        land:     mythic    # lands share the mythic row on a 4×4
+    default_zone: overflow
+
+  # ────────────────────────────────────────────────────────────────────
+  # by_rarity_color  —  primary: rarity, secondary: color | for 4×16
+  # ────────────────────────────────────────────────────────────────────
+  by_rarity_color:
+    description: "Sort by rarity then colour — needs a 4×16 tray"
+    compatible_grids: [4x16]
+    sort_keys: [rarity, color]
+    foil_override: true    # foils go to 'foil' zone regardless of rarity
+    zone_rules:
+      rarity_color:
+        common_white:      common_white
+        common_blue:       common_blue
+        common_black:      common_black
+        common_red:        common_red
+        common_green:      common_green
+        common_colorless:  common_colorless
+        common_multi:      common_multi
+        uncommon_white:    uncommon_white
+        uncommon_blue:     uncommon_blue
+        uncommon_black:    uncommon_black
+        uncommon_red:      uncommon_red
+        uncommon_green:    uncommon_green
+        uncommon_colorless: uncommon_colorless
+        uncommon_multi:    uncommon_multi
+        rare_white:        rare_white
+        rare_blue:         rare_blue
+        rare_black:        rare_black
+        rare_red:          rare_red
+        rare_green:        rare_green
+        rare_colorless:    rare_colorless
+        rare_multi:        rare_multi
+        mythic_any:        mythic
+        land_any:          land
+    default_zone: overflow
+
+  # ────────────────────────────────────────────────────────────────────
+  # by_set  —  primary sort: set code | for 2×8 tray
+  # ────────────────────────────────────────────────────────────────────
+  by_set:
+    description: "Sort into bins by set, one bin per set"
+    compatible_grids: [2x8]
+    sort_keys: [set_id]
+    foil_override: false
+    zone_rules:
+      set_id:
+        # ── PLUG IN: map your set codes to zone names ────────────────
+        # Format:  "<set_code>": <zone_name_in_grid_config>
+        # Example: "MON": set_1
+        PLACEHOLDER_SET_CODE_1: set_1
+        PLACEHOLDER_SET_CODE_2: set_2
+        PLACEHOLDER_SET_CODE_3: set_3
+        PLACEHOLDER_SET_CODE_4: set_4
+        PLACEHOLDER_SET_CODE_5: set_5
+        PLACEHOLDER_SET_CODE_6: set_6
+        PLACEHOLDER_SET_CODE_7: set_7
+        PLACEHOLDER_SET_CODE_8: set_8
+    default_zone: overflow
+
+  # ────────────────────────────────────────────────────────────────────
+  # by_value  —  primary sort: price tier | for 4×4 tray
+  # ────────────────────────────────────────────────────────────────────
+  by_value:
+    description: "Sort by market price tier (requires DB pricing data)"
+    compatible_grids: [4x4]
+    sort_keys: [price_cad]
+    foil_override: false
+    zone_rules:
+      price_tier:
+        # ── PLUG IN: adjust price thresholds in sort_rules.py ────────
+        bulk:      common      # $0.00 – $0.49
+        low:       uncommon    # $0.50 – $1.99
+        mid:       rare        # $2.00 – $9.99
+        high:      mythic      # $10.00+
+    default_zone: common      # no price data → treat as bulk
+
+  # ────────────────────────────────────────────────────────────────────
+  # by_color  —  primary sort: color identity | for 2×8 tray
+  # ────────────────────────────────────────────────────────────────────
+  by_color:
+    description: "Sort by colour identity"
+    compatible_grids: [2x8]
+    sort_keys: [color_identity]
+    foil_override: false
+    zone_rules:
+      color_identity:
+        white:      set_1
+        blue:       set_2
+        black:      set_3
+        red:        set_4
+        green:      set_5
+        colorless:  set_6
+        multi:      set_7
+    default_zone: overflow
