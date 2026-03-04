@@ -137,3 +137,37 @@ export interface WatchlistEntry {
   priceAtAdd: number | null;
   addedAt: string; // ISO timestamp
 }
+
+// ── Deck Checkout ────────────────────────────────────────────────────────────
+
+export interface DeckCard {
+  qty: number;
+  name: string;
+  pitch: string | null; // "1"=red, "2"=yellow, "3"=blue, null=no pitch (equipment/hero)
+}
+
+export interface DeckMatch {
+  cardName: string;
+  cardUniqueId: string;
+  imageUrl: string | null;
+  retailerSlug: string;
+  retailerName: string;
+  variantId: string;
+  price: number;
+  productUrl: string;
+  foiling: string | null;
+  edition: string | null;
+}
+
+export interface DeckCheckoutResult {
+  input: DeckCard;
+  match: DeckMatch | null;
+}
+
+export interface DeckCheckoutResponse {
+  results: DeckCheckoutResult[];
+  cartUrls: Record<string, string>; // retailerSlug → Shopify cart URL
+  totalFound: number;
+  totalMissing: number;
+  grandTotal: number;
+}

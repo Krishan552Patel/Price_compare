@@ -1297,3 +1297,73 @@ export async function getAvailableSpecializations(
     return [];
   }
 }
+
+// ── Deck Checkout ────────────────────────────────────────────────────────────
+
+/**
+ * Find the cheapest in-stock NM listing for a card (any printing / edition / foiling).
+ * pitch is "1"/"2"/"3" or null. Returns null if no listing found.
+ */
+export async function getDeckCardPrice(
+  name: string,
+  pitch: string | null
+): Promise<{
+  card_name: string;
+  card_unique_id: string;
+  image_url: string | null;
+  retailer_slug: string;
+  retailer_name: string;
+  shopify_variant_id: string;
+  price_cad: number;
+  product_url: string;
+  foiling: string | null;
+  edition: string | null;
+} | null> {
+  try {
+    const args: (string | null)[] = [name, pitch];
+    const result = await db.execute({
+      sql: `
+        SELECT
+          c.name            AS card_name,
+          c.unique_id       AS card_unique_id,
+          p.image_url,
+          p.foiling,
+          p.edition,
+          rp.retailer_slug,
+          r.name            AS retailer_name,
+          rp.shopify_variant_id,
+          rp.price_cad,
+          rp.product_url
+        FROM retailer_products rp
+        JOIN printings p  ON rp.printing_unique_id = p.unique_id
+        JOIN cards c      ON p.card_unique_id = c.unique_id
+        JOIN retailers r  ON rp.retailer_slug = r.slug
+        WHERE LOWER(c.name) = LOWER($1)
+          AND ($2::text IS NULL OR c.pitch = $2)
+          AND rp.condition = 'NM'
+          AND rp.in_stock = 1
+          AND rp.price_cad > 0
+        ORDER BY rp.price_cad ASC
+        LIMIT 1
+      `,
+      args,
+    });
+    if (result.rows.length === 0) return null;
+    const r = result.rows[0] as Record<string, unknown>;
+    return {
+      card_name: r.card_name as string,
+      card_unique_id: r.card_unique_id as string,
+      image_url: r.image_url as string | null,
+      retailer_slug: r.retailer_slug as string,
+      retailer_name: r.retailer_name as string,
+      shopify_variant_id: r.shopify_variant_id as string,
+      price_cad: Number(r.price_cad),
+      product_url: r.product_url as string,
+      foiling: r.foiling as string | null,
+      edition: r.edition as string | null,
+    };
+  } catch (error) {
+    console.error("getDeckCardPrice failed:", error);
+    return null;
+  }
+}
