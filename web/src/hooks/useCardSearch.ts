@@ -4,31 +4,59 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Fuse, { IFuseOptions } from "fuse.js";
 import type { SearchResult } from "@/lib/types";
 
-// Compressed card index entry from API
-interface CardIndexEntry {
+// Raw entry as stored in localStorage / returned by API
+interface CardIndexRaw {
   i: string;  // unique_id
   n: string;  // name
   t: string;  // type_text
   m: string;  // image_url
-  c: string;  // card_ids (e.g. "WTR001 EVR034")
-  s: string;  // set_names (e.g. "Welcome to Rathe Everfest")
+  c: string;  // card_ids space-joined (e.g. "WTR001 EVR034")
+  s: string;  // set_names space-joined
+}
+
+// Processed entry fed to Fuse — c is an array so Fuse matches each ID individually
+interface CardIndexEntry {
+  i: string;
+  n: string;
+  t: string;
+  m: string;
+  c: string[];  // split so Fuse scores "WTR001" against "WTR001" not "WTR001 EVR034"
+  s: string;
 }
 
 // LocalStorage key for caching
 const CACHE_KEY = "fab-card-index";
 const CACHE_VERSION_KEY = "fab-card-index-version";
-const CACHE_VERSION = "v2"; // bumped: added card_ids + set_names fields
+const CACHE_VERSION = "v3"; // bumped: c is now stored as string[], query normalized
 
-// Fuse.js options for fuzzy search
+// Convert raw (space-joined) entries into Fuse-ready entries
+function processRaw(raw: CardIndexRaw[]): CardIndexEntry[] {
+  return raw.map((r) => ({
+    ...r,
+    c: r.c ? r.c.split(" ").filter(Boolean) : [],
+  }));
+}
+
+// Normalize card-number-style queries before searching:
+//   "WTR 1"  → "WTR001"
+//   "EVR 34" → "EVR034"
+//   "ARC 100"→ "ARC100"  (already 3 digits, no padding needed)
+function normalizeQuery(q: string): string {
+  return q.replace(/\b([A-Za-z]{2,5})\s+(\d{1,3})\b/g, (_, letters, digits) =>
+    letters.toUpperCase() + digits.padStart(3, "0")
+  );
+}
+
+// Fuse.js options — c is string[] so Fuse searches each element individually
 const FUSE_OPTIONS: IFuseOptions<CardIndexEntry> = {
   keys: [
     { name: "n", weight: 1 },    // name (highest priority)
-    { name: "c", weight: 0.9 },  // card_ids — exact card number match (e.g. "WTR001")
-    { name: "s", weight: 0.4 },  // set_names — browsing by set name or code
+    { name: "c", weight: 0.9 },  // card IDs — each matched individually (e.g. "WTR001")
+    { name: "s", weight: 0.4 },  // set names
     { name: "t", weight: 0.3 },  // type_text
   ],
-  threshold: 0.3,        // 0 = exact, 1 = match anything
-  distance: 100,         // how far to search for fuzzy match
+  threshold: 0.3,
+  distance: 100,
   minMatchCharLength: 2,
   includeScore: true,
   shouldSort: true,
@@ -48,34 +76,27 @@ export function useCardSearch(): UseCardSearchResult {
   const [error, setError] = useState<string | null>(null);
   const [cardCount, setCardCount] = useState(0);
   const fuseRef = useRef<Fuse<CardIndexEntry> | null>(null);
-  const indexRef = useRef<CardIndexEntry[]>([]);
 
-  // Load index on mount
   useEffect(() => {
     let cancelled = false;
 
     async function loadIndex() {
       try {
-        // Try localStorage first
         const cachedVersion = localStorage.getItem(CACHE_VERSION_KEY);
         const cachedData = localStorage.getItem(CACHE_KEY);
-        
+
         if (cachedVersion === CACHE_VERSION && cachedData) {
-          const parsed = JSON.parse(cachedData) as CardIndexEntry[];
-          if (parsed.length > 0) {
-            indexRef.current = parsed;
-            fuseRef.current = new Fuse(parsed, FUSE_OPTIONS);
-            setCardCount(parsed.length);
+          const raw = JSON.parse(cachedData) as CardIndexRaw[];
+          if (raw.length > 0) {
+            fuseRef.current = new Fuse(processRaw(raw), FUSE_OPTIONS);
+            setCardCount(raw.length);
             setIsReady(true);
             setIsLoading(false);
-            
-            // Refresh in background (stale-while-revalidate pattern)
             fetchAndUpdate(cancelled);
             return;
           }
         }
 
-        // No cache, fetch from API
         await fetchAndUpdate(cancelled);
       } catch (err) {
         if (!cancelled) {
@@ -89,23 +110,20 @@ export function useCardSearch(): UseCardSearchResult {
       try {
         const response = await fetch("/api/cards/index");
         if (!response.ok) throw new Error("Failed to fetch card index");
-        
-        const data = (await response.json()) as CardIndexEntry[];
-        
-        if (!cancelled && data.length > 0) {
-          // Update refs
-          indexRef.current = data;
-          fuseRef.current = new Fuse(data, FUSE_OPTIONS);
-          setCardCount(data.length);
+
+        const raw = (await response.json()) as CardIndexRaw[];
+
+        if (!cancelled && raw.length > 0) {
+          fuseRef.current = new Fuse(processRaw(raw), FUSE_OPTIONS);
+          setCardCount(raw.length);
           setIsReady(true);
           setIsLoading(false);
-          
-          // Update localStorage cache
+
           try {
-            localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+            localStorage.setItem(CACHE_KEY, JSON.stringify(raw));
             localStorage.setItem(CACHE_VERSION_KEY, CACHE_VERSION);
           } catch {
-            // localStorage might be full, ignore
+            // localStorage full, ignore
           }
         }
       } catch (err) {
@@ -117,34 +135,23 @@ export function useCardSearch(): UseCardSearchResult {
     }
 
     loadIndex();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  // Search function - instant, runs locally
   const search = useCallback((query: string): SearchResult[] => {
-    if (!fuseRef.current || !query || query.length < 2) {
-      return [];
-    }
+    if (!fuseRef.current || !query || query.length < 2) return [];
 
-    const results = fuseRef.current.search(query, { limit: 8 });
-    
+    const normalized = normalizeQuery(query);
+    const results = fuseRef.current.search(normalized, { limit: 8 });
+
     return results.map((result) => ({
       unique_id: result.item.i,
       name: result.item.n,
       type_text: result.item.t || null,
       image_url: result.item.m || null,
-      card_ids: result.item.c || null,
+      card_ids: result.item.c.join(" ") || null,
     }));
   }, []);
 
-  return {
-    search,
-    isLoading,
-    isReady,
-    error,
-    cardCount,
-  };
+  return { search, isLoading, isReady, error, cardCount };
 }
