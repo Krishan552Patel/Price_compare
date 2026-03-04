@@ -246,18 +246,24 @@ def build_last_price_index(cur):
     already holds the most-recent price/stock/condition for every variant, so
     this is both faster and avoids a full scan of the history table.
 
-    Returns: dict  (retailer_slug, variant_id) -> {price, in_stock, condition}
+    Returns: dict  (retailer_slug, variant_id) -> {price, in_stock, condition,
+                                                    title, variant_title, printing_uid}
     """
     cur.execute("""
-        SELECT retailer_slug, shopify_variant_id, price_cad, in_stock, condition
+        SELECT retailer_slug, shopify_variant_id, price_cad, in_stock, condition,
+               product_title, variant_title, printing_unique_id
         FROM retailer_products
     """)
     index = {}
-    for retailer_slug, variant_id, price_cad, in_stock, condition in cur.fetchall():
+    for row in cur.fetchall():
+        retailer_slug, variant_id, price_cad, in_stock, condition, title, vtitle, puid = row
         index[(retailer_slug, str(variant_id))] = {
-            "price":     float(price_cad or 0),
-            "in_stock":  int(in_stock or 0),
-            "condition": condition or "NM",
+            "price":         float(price_cad or 0),
+            "in_stock":      int(in_stock or 0),
+            "condition":     condition or "NM",
+            "title":         title or "",
+            "variant_title": vtitle or "",
+            "printing_uid":  puid,
         }
     return index
 
@@ -306,6 +312,7 @@ def process_retailer(slug, info, card_index, today, last_prices, variants_with_h
 
     product_rows = []   # rows for retailer_products upsert
     history_rows = []   # rows for price_history — written on first-seen or price change
+    seen_ids     = set() # all variant IDs seen this scrape (for out-of-stock detection)
     history_skipped = 0 # unchanged rows suppressed
     matched = 0
     skipped = 0
@@ -333,6 +340,7 @@ def process_retailer(slug, info, card_index, today, last_prices, variants_with_h
 
         for variant in product.get("variants", []):
             variant_id = str(variant.get("id", ""))
+            seen_ids.add(variant_id)
             product_id = str(product.get("id", ""))
             variant_title = variant.get("title", "")
             price = variant.get("price")
@@ -398,7 +406,7 @@ def process_retailer(slug, info, card_index, today, last_prices, variants_with_h
         "history_written":    len(history_rows),
         "history_skipped":    history_skipped,
     }
-    return product_rows, history_rows, stats
+    return product_rows, history_rows, stats, seen_ids
 
 
 def batch_upsert_products(cur, rows):
@@ -447,6 +455,41 @@ def batch_upsert_history(cur, rows):
             price_history.in_stock  IS DISTINCT FROM EXCLUDED.in_stock  OR
             price_history.condition IS DISTINCT FROM EXCLUDED.condition
     """, rows)
+
+
+def mark_unseen_out_of_stock(cur, slug, seen_ids, last_prices, today):
+    """
+    Variants that were in retailer_products but weren't seen in this scrape
+    have been removed from the store (discontinued, deleted, etc.). Mark them
+    in_stock=0 and write a price_history row recording the out-of-stock date
+    so the price chart correctly shows when they became unavailable.
+
+    Returns the number of variants marked out-of-stock.
+    """
+    unseen = [
+        (vid, info)
+        for (s, vid), info in last_prices.items()
+        if s == slug and vid not in seen_ids and info["in_stock"] == 1
+    ]
+    if not unseen:
+        return 0
+
+    # Write history rows showing the transition to out-of-stock
+    history_rows = [
+        (slug, vid, info["title"], info["variant_title"],
+         info["price"], 0, info["printing_uid"], info["condition"], today)
+        for vid, info in unseen
+    ]
+    batch_upsert_history(cur, history_rows)
+
+    # Mark them out-of-stock in retailer_products
+    unseen_ids = [vid for vid, _ in unseen]
+    cur.execute(
+        "UPDATE retailer_products SET in_stock = 0, updated_at = NOW() "
+        "WHERE retailer_slug = %s AND shopify_variant_id = ANY(%s::text[]) AND in_stock = 1",
+        (slug, unseen_ids)
+    )
+    return len(unseen)
 
 
 def main():
@@ -500,7 +543,7 @@ def main():
                 log(f"\n--- {info['name']} ---")
                 start_time = time.time()
 
-                product_rows, history_rows, stats = process_retailer(
+                product_rows, history_rows, stats, seen_ids = process_retailer(
                     slug, info, card_index, today, last_prices, variants_with_history
                 )
 
@@ -510,6 +553,10 @@ def main():
                 log(f"  Writing {len(history_rows)} history rows "
                     f"({stats['history_skipped']:,} unchanged, skipped)...")
                 batch_upsert_history(cur, history_rows)
+
+                oos_count = mark_unseen_out_of_stock(cur, slug, seen_ids, last_prices, today)
+                if oos_count:
+                    log(f"  Marked {oos_count} removed variants as out-of-stock")
 
                 conn.commit()
                 duration = round(time.time() - start_time, 1)
