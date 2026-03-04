@@ -110,6 +110,7 @@ export interface SearchResult {
   name: string;
   type_text: string | null;
   image_url: string | null;
+  card_ids: string | null;  // e.g. "WTR001 EVR034" — shown as subtitle in dropdown
 }
 
 export interface TrendingCard {

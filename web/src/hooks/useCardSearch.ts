@@ -10,17 +10,21 @@ interface CardIndexEntry {
   n: string;  // name
   t: string;  // type_text
   m: string;  // image_url
+  c: string;  // card_ids (e.g. "WTR001 EVR034")
+  s: string;  // set_names (e.g. "Welcome to Rathe Everfest")
 }
 
 // LocalStorage key for caching
 const CACHE_KEY = "fab-card-index";
 const CACHE_VERSION_KEY = "fab-card-index-version";
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2"; // bumped: added card_ids + set_names fields
 
 // Fuse.js options for fuzzy search
 const FUSE_OPTIONS: IFuseOptions<CardIndexEntry> = {
   keys: [
     { name: "n", weight: 1 },    // name (highest priority)
+    { name: "c", weight: 0.9 },  // card_ids — exact card number match (e.g. "WTR001")
+    { name: "s", weight: 0.4 },  // set_names — browsing by set name or code
     { name: "t", weight: 0.3 },  // type_text
   ],
   threshold: 0.3,        // 0 = exact, 1 = match anything
@@ -132,6 +136,7 @@ export function useCardSearch(): UseCardSearchResult {
       name: result.item.n,
       type_text: result.item.t || null,
       image_url: result.item.m || null,
+      card_ids: result.item.c || null,
     }));
   }, []);
 

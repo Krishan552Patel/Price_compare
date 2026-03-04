@@ -138,7 +138,7 @@ export default function SearchBar({ large = false }: { large?: boolean }) {
             onFocus={() => {
               if (results.length > 0) setIsOpen(true);
             }}
-            placeholder="Search cards..."
+            placeholder="Search cards, sets, card numbers..."
             className={`w-full bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-red-500 transition ${
               large ? "pl-11 pr-5 py-3 text-lg" : "pl-9 pr-3 py-2 text-sm"
             }`}
@@ -185,11 +185,14 @@ export default function SearchBar({ large = false }: { large?: boolean }) {
                 <div className="text-white text-sm font-medium truncate">
                   {result.name}
                 </div>
-                {result.type_text && (
-                  <div className="text-gray-400 text-xs truncate">
-                    {result.type_text}
-                  </div>
-                )}
+                <div className="text-gray-400 text-xs truncate">
+                  {result.type_text || ""}
+                  {result.card_ids && (
+                    <span className="ml-1 text-gray-600 font-mono">
+                      {result.card_ids.split(" ")[0]}
+                    </span>
+                  )}
+                </div>
               </div>
             </button>
           ))}

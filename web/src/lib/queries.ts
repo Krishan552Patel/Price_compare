@@ -38,6 +38,7 @@ export async function searchCards(
     name: row.name as string,
     type_text: row.type_text as string | null,
     image_url: row.image_url as string | null,
+    card_ids: null,
   }));
 }
 
