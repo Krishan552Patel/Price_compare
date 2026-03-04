@@ -29,10 +29,17 @@ if not NEON_URL:
 WINDOWS = [7, 14, 30, 90]
 
 # ── CTE block (shared across all windows, only INTERVAL changes) ──────────────
+#
+# Key design: compare each shopify_variant_id to ITSELF (past vs current).
+# Aggregating by printing_unique_id with MIN() used to compare CF Marvel ($180)
+# past price against regular CF ($40) current price — a fake -77% drop.
+# Now we join on (retailer_slug, shopify_variant_id) throughout, then use
+# DISTINCT ON to pick the cheapest current variant per printing.
 def make_mv_sql(days: int) -> str:
     return f"""
-    WITH retailer_earliest AS (
-      SELECT retailer_slug, printing_unique_id, MIN(scraped_date) AS d
+    WITH variant_earliest AS (
+      -- Earliest date each variant appeared in the history window
+      SELECT retailer_slug, shopify_variant_id, printing_unique_id, MIN(scraped_date) AS earliest_date
       FROM price_history
       WHERE condition = 'NM'
         AND in_stock = 1
@@ -40,35 +47,49 @@ def make_mv_sql(days: int) -> str:
         AND scraped_date < CURRENT_DATE
         AND price_cad > 0
         AND printing_unique_id IS NOT NULL
-      GROUP BY retailer_slug, printing_unique_id
+        AND shopify_variant_id IS NOT NULL
+      GROUP BY retailer_slug, shopify_variant_id, printing_unique_id
     ),
-    retailer_past AS (
-      SELECT ph.retailer_slug, ph.printing_unique_id, MIN(ph.price_cad) AS past_price
+    variant_past AS (
+      -- Price for each variant at its earliest date in the window
+      SELECT ph.retailer_slug, ph.shopify_variant_id, ph.printing_unique_id,
+             MIN(ph.price_cad) AS past_price
       FROM price_history ph
-      JOIN retailer_earliest re
-        ON ph.retailer_slug = re.retailer_slug
-       AND ph.printing_unique_id = re.printing_unique_id
-       AND ph.scraped_date = re.d
+      JOIN variant_earliest ve
+        ON ph.retailer_slug    = ve.retailer_slug
+       AND ph.shopify_variant_id = ve.shopify_variant_id
+       AND ph.scraped_date     = ve.earliest_date
       WHERE ph.condition = 'NM' AND ph.in_stock = 1 AND ph.price_cad > 0
-      GROUP BY ph.retailer_slug, ph.printing_unique_id
+      GROUP BY ph.retailer_slug, ph.shopify_variant_id, ph.printing_unique_id
     ),
-    price_past AS (
-      SELECT rp.printing_unique_id, MIN(rp.past_price) AS past_price
-      FROM retailer_past rp
-      JOIN retailer_products rc
-        ON rp.retailer_slug = rc.retailer_slug
-       AND rp.printing_unique_id = rc.printing_unique_id
-      WHERE rc.in_stock = 1 AND rc.condition = 'NM'
-      GROUP BY rp.printing_unique_id
+    variant_current AS (
+      -- Current price for the SAME variant (same retailer + same shopify_variant_id)
+      SELECT rp.retailer_slug, rp.shopify_variant_id, rp.price_cad AS current_price
+      FROM retailer_products rp
+      JOIN variant_past vp
+        ON rp.retailer_slug      = vp.retailer_slug
+       AND rp.shopify_variant_id = vp.shopify_variant_id
+      WHERE rp.in_stock = 1 AND rp.condition = 'NM' AND rp.price_cad > 0
     ),
-    price_current AS (
-      SELECT rc.printing_unique_id, MIN(rc.price_cad) AS current_price
-      FROM retailer_products rc
-      JOIN retailer_past rp
-        ON rc.retailer_slug = rp.retailer_slug
-       AND rc.printing_unique_id = rp.printing_unique_id
-      WHERE rc.in_stock = 1 AND rc.condition = 'NM' AND rc.printing_unique_id IS NOT NULL
-      GROUP BY rc.printing_unique_id
+    variant_changes AS (
+      -- Per-variant price change (apples-to-apples: same variant past vs same variant now)
+      SELECT
+        vp.printing_unique_id,
+        vp.past_price,
+        vc.current_price
+      FROM variant_past vp
+      JOIN variant_current vc
+        ON vp.retailer_slug      = vc.retailer_slug
+       AND vp.shopify_variant_id = vc.shopify_variant_id
+    ),
+    printing_best AS (
+      -- One row per printing: pick the variant with the lowest current price
+      SELECT DISTINCT ON (printing_unique_id)
+        printing_unique_id,
+        past_price,
+        current_price
+      FROM variant_changes
+      ORDER BY printing_unique_id, current_price ASC
     )
     SELECT
       c.unique_id        AS card_unique_id,
@@ -83,16 +104,15 @@ def make_mv_sql(days: int) -> str:
       p.foiling,
       p.edition,
       p.image_url,
-      pc.current_price,
-      pp.past_price,
-      (pc.current_price - pp.past_price)                                              AS price_change,
-      ROUND(((pc.current_price - pp.past_price) / pp.past_price * 100)::numeric, 1)  AS percent_change
-    FROM price_past pp
-    JOIN price_current pc ON pp.printing_unique_id = pc.printing_unique_id
-    JOIN printings p      ON pp.printing_unique_id = p.unique_id
+      pb.current_price,
+      pb.past_price,
+      (pb.current_price - pb.past_price)                                              AS price_change,
+      ROUND(((pb.current_price - pb.past_price) / pb.past_price * 100)::numeric, 1)  AS percent_change
+    FROM printing_best pb
+    JOIN printings p      ON pb.printing_unique_id = p.unique_id
     JOIN cards c          ON p.card_unique_id = c.unique_id
     LEFT JOIN sets s      ON p.set_id = s.set_code
-    WHERE ((pc.current_price - pp.past_price) / pp.past_price * 100) BETWEEN -99 AND 1000
+    WHERE ((pb.current_price - pb.past_price) / pb.past_price * 100) BETWEEN -99 AND 1000
     """
 
 
