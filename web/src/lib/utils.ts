@@ -1,3 +1,20 @@
+/**
+ * Normalise a compact card-ID query so users don't need to type leading zeros.
+ *   "WTR01"  → "WTR001"   (1-2 trailing digits get zero-padded to 3)
+ *   "ARC1"   → "ARC001"
+ *   "1HP41"  → "1HP041"
+ *   "WTR001" → "WTR001"   (already 3 digits — unchanged)
+ *   "1HP141" → "1HP141"   (already 3 digits — unchanged)
+ *   "brothers in arms" → unchanged (no trailing 1-2 digit pattern)
+ *
+ * Spaces are stripped before matching so "WTR 01" → "WTR001" too.
+ */
+export function normalizeCardId(q: string): string {
+  const stripped = q.replace(/\s+/g, "");
+  const m = stripped.match(/^([A-Za-z0-9]*[A-Za-z])(\d{1,2})$/i);
+  return m ? m[1].toUpperCase() + m[2].padStart(3, "0") : q;
+}
+
 export function formatPrice(cad: number): string {
   return `$${cad.toFixed(2)}`;
 }

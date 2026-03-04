@@ -1,5 +1,5 @@
 import db from "./db";
-import { parseJsonArray } from "./utils";
+import { parseJsonArray, normalizeCardId } from "./utils";
 import type {
   Card,
   Printing,
@@ -474,8 +474,10 @@ export async function browseCards(params: {
     const conditions: string[] = [];
     const args: (string | number)[] = [];
 
-    // Text search — matches card name OR any printing's card_id (e.g. "1HP141")
+    // Text search — matches card name OR any printing's card_id (e.g. "1HP141").
+    // normalizeCardId pads short IDs ("WTR01" → "WTR001") so the ILIKE hits.
     if (query) {
+      const normQuery = normalizeCardId(query);
       conditions.push(
         `(c.name ILIKE ? OR EXISTS (
           SELECT 1 FROM printings px
@@ -483,8 +485,8 @@ export async function browseCards(params: {
             AND px.card_id ILIKE ?
         ))`
       );
-      args.push(`%${query}%`);
-      args.push(`%${query}%`);
+      args.push(`%${normQuery}%`);
+      args.push(`%${normQuery}%`);
     }
 
     // Card-level filters (direct column match)

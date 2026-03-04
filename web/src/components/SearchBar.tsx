@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useCardSearch } from "@/hooks/useCardSearch";
+import { normalizeCardId } from "@/lib/utils";
 import type { SearchResult } from "@/lib/types";
 
 // Known cards-page params to carry over when submitting a search from /cards.
@@ -73,7 +74,10 @@ export default function SearchBar({ large = false }: { large?: boolean }) {
             if (CARD_PAGE_PARAMS.has(key)) newParams.set(key, value);
           }
         }
-        newParams.set("q", query.trim());
+        // Normalise short card-ID queries before navigating so the browse
+        // page gets "WTR001" instead of "WTR01" for the ILIKE match.
+        const q = normalizeCardId(query.trim());
+        newParams.set("q", q);
         router.push(`/cards?${newParams.toString()}`);
       }
     },

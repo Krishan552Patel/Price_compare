@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Fuse, { IFuseOptions } from "fuse.js";
 import type { SearchResult } from "@/lib/types";
+import { normalizeCardId } from "@/lib/utils";
 
 // Raw entry as stored in localStorage / returned by API
 interface CardIndexRaw {
@@ -35,24 +36,21 @@ function processRaw(raw: CardIndexRaw[]): CardIndexEntry[] {
   }));
 }
 
-// Normalize card-number-style queries before searching:
-//   "WTR 1"   → "WTR001"   (all-letter set code + space + number)
-//   "1HP 141" → "1HP141"   (alphanumeric set code + space + number)
-//   "EVR 34"  → "EVR034"
+// Normalize space-separated queries: "WTR 1" → "WTR001", "1HP 141" → "1HP141"
 function normalizeQuery(q: string): string {
   return q.replace(/\b([A-Za-z0-9]{2,5})\s+(\d{1,3})\b/g, (_, prefix, digits) =>
     prefix.toUpperCase() + digits.padStart(3, "0")
   );
 }
 
-// Direct card-ID substring search — bypasses Fuse for code-like queries.
-// Case-insensitive, strips spaces. Handles "1hp141", "WTR001", "wtr", etc.
-function searchByCardId(raw: CardIndexRaw[], query: string): SearchResult[] {
-  const q = query.toLowerCase().replace(/\s+/g, "");
+// Direct card-ID search — bypasses Fuse. Accepts an already-normalized ID
+// (spaces stripped, zero-padded). Case-insensitive prefix or exact match.
+function searchByCardId(raw: CardIndexRaw[], normalizedId: string): SearchResult[] {
+  const q = normalizedId.toLowerCase();
   const matches: SearchResult[] = [];
   for (const entry of raw) {
     const ids = entry.c.toLowerCase().split(" ").filter(Boolean);
-    if (ids.some((id) => id.startsWith(q) || id === q)) {
+    if (ids.some((id) => id === q || id.startsWith(q))) {
       matches.push({
         unique_id: entry.i,
         name: entry.n,
@@ -66,7 +64,7 @@ function searchByCardId(raw: CardIndexRaw[], query: string): SearchResult[] {
   return matches;
 }
 
-// Pattern that looks like a card ID (alphanumeric, may start with digit, no spaces)
+// Looks like a compact card-ID token (alphanumeric, no spaces, 2-10 chars)
 const CARD_ID_RE = /^[A-Za-z0-9]{2,10}$/;
 
 const FUSE_OPTIONS: IFuseOptions<CardIndexEntry> = {
@@ -165,14 +163,15 @@ export function useCardSearch(): UseCardSearchResult {
   const search = useCallback((query: string): SearchResult[] => {
     if (!query || query.length < 2) return [];
 
-    // Normalize "WTR 1" → "WTR001", "1HP 141" → "1HP141", etc.
+    // Step 1: normalise space-separated forms ("WTR 1" → "WTR001")
     const normalized = normalizeQuery(query);
 
-    // For code-like queries (alphanumeric, no spaces), try direct card-ID
-    // substring match first — this reliably handles "1hp141", "WTR001", etc.
+    // Step 2: for compact code-like tokens, also pad short trailing numbers
+    // ("WTR01" → "WTR001", "ARC1" → "ARC001") via the shared utility.
     const stripped = normalized.replace(/\s+/g, "");
     if (CARD_ID_RE.test(stripped)) {
-      const idMatches = searchByCardId(rawRef.current, stripped);
+      const cardId = normalizeCardId(stripped); // "WTR01" → "WTR001"
+      const idMatches = searchByCardId(rawRef.current, cardId);
       if (idMatches.length > 0) return idMatches;
     }
 
