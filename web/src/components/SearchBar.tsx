@@ -5,6 +5,15 @@ import { useRouter } from "next/navigation";
 import { useCardSearch } from "@/hooks/useCardSearch";
 import type { SearchResult } from "@/lib/types";
 
+// Known cards-page params to carry over when submitting a search from /cards.
+// Prevents bleeding URL params from other pages (e.g. /trending?period=week).
+const CARD_PAGE_PARAMS = new Set([
+  "sort", "density", "view",
+  "set", "rarity", "foiling", "edition", "color", "class", "pitch",
+  "keyword", "subtype", "talent", "fusion", "specialization", "artVariation",
+  "inStockOnly", "power", "health", "cost", "defense",
+]);
+
 export default function SearchBar({ large = false }: { large?: boolean }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -15,7 +24,7 @@ export default function SearchBar({ large = false }: { large?: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null);
   
   // Client-side search with Fuse.js - instant after initial load
-  const { search, isLoading: indexLoading, isReady } = useCardSearch();
+  const { search, isLoading: indexLoading } = useCardSearch();
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -55,10 +64,17 @@ export default function SearchBar({ large = false }: { large?: boolean }) {
       if (e) e.preventDefault();
       if (query.trim()) {
         setIsOpen(false);
-        const currentParams = new URLSearchParams(window.location.search);
-        currentParams.set("q", query.trim());
-        currentParams.delete("page");
-        router.push(`/cards?${currentParams.toString()}`);
+        const newParams = new URLSearchParams();
+        // Only carry over known cards-page params when already on /cards.
+        // This prevents other pages' URL params from leaking into the search URL.
+        if (window.location.pathname === "/cards") {
+          const current = new URLSearchParams(window.location.search);
+          for (const [key, value] of current.entries()) {
+            if (CARD_PAGE_PARAMS.has(key)) newParams.set(key, value);
+          }
+        }
+        newParams.set("q", query.trim());
+        router.push(`/cards?${newParams.toString()}`);
       }
     },
     [query, router]

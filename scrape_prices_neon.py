@@ -70,8 +70,13 @@ EDITION_MAP = {
     "Regular": "N",
 }
 
-# Purge history older than this many days (keep 91 so 90-day trending is intact)
-HISTORY_RETENTION_DAYS = 91
+# Purge history older than this many days.
+# DELETE WHERE scraped_date < CURRENT_DATE - 90 days
+# → keeps the last 90 days of data (inclusive of today).
+# → data from day 0 (Feb 25 2026) is deleted on day 91, Feb 26 on day 92, etc.
+# The 90-day trending MV uses scraped_date >= CURRENT_DATE - 90, which matches
+# exactly what we keep, so no data is lost from the trending window.
+HISTORY_RETENTION_DAYS = 90
 
 
 def log(msg=""):
@@ -257,6 +262,22 @@ def build_last_price_index(cur):
     return index
 
 
+def build_history_variant_set(cur):
+    """
+    Return the set of (retailer_slug, shopify_variant_id) pairs that already
+    have at least one row in price_history.
+
+    Used alongside build_last_price_index so that variants known to
+    retailer_products but with NO history yet still receive a baseline entry
+    on the next scrape (even when the price hasn't changed).
+    """
+    cur.execute("""
+        SELECT DISTINCT retailer_slug, shopify_variant_id
+        FROM price_history
+    """)
+    return {(row[0], str(row[1])) for row in cur.fetchall()}
+
+
 def purge_old_history(cur):
     """
     Delete price_history rows older than HISTORY_RETENTION_DAYS.
@@ -270,10 +291,15 @@ def purge_old_history(cur):
     return cur.rowcount
 
 
-def process_retailer(slug, info, card_index, today, last_prices):
+def process_retailer(slug, info, card_index, today, last_prices, variants_with_history):
     """
     Scrape one retailer and return (product_rows, history_rows, stats).
     All DB writes happen outside this function so they can be batched.
+
+    variants_with_history: set of (retailer_slug, variant_id) that already
+    have at least one price_history row. Variants in last_prices (i.e. known
+    to retailer_products) but NOT in this set receive a baseline history entry
+    even when the price hasn't changed, so chart data is never missing.
     """
     products = fetch_all_products(info["name"], info["base_url"])
     log(f"  Fetched {len(products)} products. Processing...")
@@ -332,16 +358,17 @@ def process_retailer(slug, info, card_index, today, last_prices):
             ))
 
             # History strategy:
-            #   • First time seen        → write today's row (baseline)
-            #   • Price / stock changed  → write a "yesterday anchor" at the OLD price
-            #                              then today's row at the NEW price.
-            #                              The anchor keeps the pre-change value inside
-            #                              every trending window (7 / 14 / 30 / 90 d)
-            #                              so movements are always visible.
-            #   • No change              → skip entirely (no redundant rows)
+            #   • First time seen (not in retailer_products)
+            #     OR known but no history row yet → write today's row (baseline)
+            #   • Price / stock / condition changed → write a "yesterday anchor"
+            #     at the OLD price then today's row at the NEW price. The anchor
+            #     keeps the pre-change value inside every trending window so
+            #     movements are always visible.
+            #   • No change AND already has history → skip (no redundant rows)
             last = last_prices.get((slug, variant_id))
-            if last is None:
-                # Never seen before — record the baseline
+            has_history = (slug, variant_id) in variants_with_history
+            if last is None or not has_history:
+                # Never seen before, or known but missing a baseline history row
                 history_rows.append((
                     slug, variant_id, title, variant_title,
                     price_cad, available, printing_uid, condition, today,
@@ -456,10 +483,14 @@ def main():
                 log("\n  ERROR: Card index is empty! Aborting.")
                 sys.exit(1)
 
-            # 3. Load last-known price snapshot (skip redundant history rows)
+            # 3. Load last-known price snapshot + existing history coverage
             log("\n[3/5] Loading last price index...")
             last_prices = build_last_price_index(cur)
             log(f"  Loaded {len(last_prices):,} known variants")
+
+            log("\n[3b/5] Loading history variant set (baseline detection)...")
+            variants_with_history = build_history_variant_set(cur)
+            log(f"  {len(variants_with_history):,} variants already have history")
 
             # 4. Scrape + batch write each retailer
             log("\n[4/5] Scraping retailers...")
@@ -470,7 +501,7 @@ def main():
                 start_time = time.time()
 
                 product_rows, history_rows, stats = process_retailer(
-                    slug, info, card_index, today, last_prices
+                    slug, info, card_index, today, last_prices, variants_with_history
                 )
 
                 log(f"  Writing {len(product_rows)} product rows (batch)...")

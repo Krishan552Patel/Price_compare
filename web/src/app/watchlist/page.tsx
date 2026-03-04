@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import CardImage from "@/components/CardImage";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import type { WatchlistEntry } from "@/lib/types";
@@ -23,6 +24,7 @@ interface PriceMap {
 }
 
 export default function WatchlistPage() {
+  const { status } = useSession();
   const { entries, removeFromWatchlist, isLoaded } = useWatchlist();
   const [currentPrices, setCurrentPrices] = useState<PriceMap>({});
   const [pricesLoading, setPricesLoading] = useState(false);
@@ -44,7 +46,27 @@ export default function WatchlistPage() {
       .catch(() => setPricesLoading(false));
   }, [isLoaded, entries]);
 
-  if (!isLoaded) {
+  if (status === "unauthenticated") {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-20 text-center">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-800 mb-4">
+          <svg className="w-8 h-8 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 3a2 2 0 00-2 2v16l9-4 9 4V5a2 2 0 00-2-2H5z" />
+          </svg>
+        </div>
+        <h1 className="text-2xl font-bold text-white mb-2">Watchlist</h1>
+        <p className="text-gray-400 mb-6">Sign in to track cards and monitor price changes.</p>
+        <Link
+          href="/login?callbackUrl=/watchlist"
+          className="inline-block px-5 py-2.5 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 transition"
+        >
+          Sign In
+        </Link>
+      </div>
+    );
+  }
+
+  if (status === "loading" || !isLoaded) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-12">
         <div className="h-8 w-48 bg-gray-800 rounded animate-pulse mb-6" />
@@ -63,10 +85,7 @@ export default function WatchlistPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white">My Watchlist</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Tracking {entries.length} card{entries.length !== 1 ? "s" : ""} — prices are NM in-stock.{" "}
-          <span className="text-gray-500">
-            Sign-in &amp; sync coming soon.
-          </span>
+          Tracking {entries.length} card{entries.length !== 1 ? "s" : ""} — prices are NM in-stock.
         </p>
       </div>
 

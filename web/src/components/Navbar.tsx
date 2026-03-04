@@ -17,7 +17,7 @@ export default function Navbar() {
   const navLinks = [
     { href: "/cards", label: "Cards" },
     { href: "/trending", label: "Trending" },
-    { href: "/watchlist", label: "Watchlist" },
+    ...(session?.user ? [{ href: "/watchlist", label: "Watchlist" }] : []),
   ];
 
   function isActive(href: string) {

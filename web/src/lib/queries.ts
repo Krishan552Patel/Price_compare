@@ -190,18 +190,34 @@ export async function getCardPrices(
 export async function getPriceHistory(
   cardUniqueId: string
 ): Promise<PriceHistoryPoint[]> {
+  // When a card has no recorded history yet (baseline missing), fall back to
+  // today's snapshot from retailer_products so the chart is never blank.
   const result = await db.execute({
-    sql: `SELECT TO_CHAR(ph.scraped_date::date, 'YYYY-MM-DD') as scraped_date,
-           ph.price_cad, ph.in_stock,
-           ph.retailer_slug, ret.name as retailer_name,
-           ph.printing_unique_id, p.card_id, p.foiling, p.edition, ph.condition
-         FROM price_history ph
-         JOIN retailers ret ON ph.retailer_slug = ret.slug
-         JOIN printings p ON ph.printing_unique_id = p.unique_id
+    sql: `WITH history AS (
+           SELECT TO_CHAR(ph.scraped_date::date, 'YYYY-MM-DD') AS scraped_date,
+                  ph.price_cad, ph.in_stock,
+                  ph.retailer_slug, ret.name AS retailer_name,
+                  ph.printing_unique_id, p.card_id, p.foiling, p.edition, ph.condition
+           FROM price_history ph
+           JOIN retailers ret ON ph.retailer_slug = ret.slug
+           JOIN printings p   ON ph.printing_unique_id = p.unique_id
+           WHERE p.card_unique_id = ?
+             AND ph.in_stock = 1
+         )
+         SELECT * FROM history
+         UNION ALL
+         SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') AS scraped_date,
+                rp.price_cad, 1::int AS in_stock,
+                rp.retailer_slug, ret.name AS retailer_name,
+                rp.printing_unique_id, p.card_id, p.foiling, p.edition, rp.condition
+         FROM retailer_products rp
+         JOIN retailers ret ON rp.retailer_slug = ret.slug
+         JOIN printings p   ON rp.printing_unique_id = p.unique_id
          WHERE p.card_unique_id = ?
-           AND ph.in_stock = 1
-         ORDER BY ph.scraped_date ASC`,
-    args: [cardUniqueId],
+           AND rp.in_stock = 1
+           AND NOT EXISTS (SELECT 1 FROM history)
+         ORDER BY scraped_date ASC`,
+    args: [cardUniqueId, cardUniqueId],
   });
 
   return result.rows.map((row) => ({

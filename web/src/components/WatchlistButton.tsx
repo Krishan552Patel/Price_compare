@@ -20,10 +20,10 @@ export default function WatchlistButton({
   variant = "icon",
   className = "",
 }: Props) {
-  const { isWatching, addToWatchlist, removeFromWatchlist, isLoaded } =
+  const { isWatching, addToWatchlist, removeFromWatchlist, isLoaded, isAuth } =
     useWatchlist();
 
-  if (!isLoaded) return null;
+  if (!isLoaded || !isAuth) return null;
 
   const watching = isWatching(cardUniqueId);
 
