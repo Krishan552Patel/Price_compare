@@ -2,10 +2,10 @@ name: Scrape Prices
 
 on:
   schedule:
-    # 12:00 AM UTC = midnight
-    - cron: "0 0 * * *"
-    # 12:00 PM UTC = noon
-    - cron: "0 12 * * *"
+    - cron: "0 0 * * *"   # midnight UTC
+    - cron: "0 6 * * *"   # 6am UTC
+    - cron: "0 12 * * *"  # noon UTC
+    - cron: "0 18 * * *"  # 6pm UTC
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 jobs:
