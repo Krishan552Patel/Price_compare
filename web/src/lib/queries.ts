@@ -474,9 +474,16 @@ export async function browseCards(params: {
     const conditions: string[] = [];
     const args: (string | number)[] = [];
 
-    // Text search
+    // Text search — matches card name OR any printing's card_id (e.g. "1HP141")
     if (query) {
-      conditions.push("c.name ILIKE ?");
+      conditions.push(
+        `(c.name ILIKE ? OR EXISTS (
+          SELECT 1 FROM printings px
+          WHERE px.card_unique_id = c.unique_id
+            AND px.card_id ILIKE ?
+        ))`
+      );
+      args.push(`%${query}%`);
       args.push(`%${query}%`);
     }
 
