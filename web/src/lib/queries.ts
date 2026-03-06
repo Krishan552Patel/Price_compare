@@ -216,7 +216,9 @@ export async function getPriceHistory(
          JOIN printings p   ON rp.printing_unique_id = p.unique_id
          WHERE p.card_unique_id = ?
            AND rp.in_stock = 1
-           AND NOT EXISTS (SELECT 1 FROM history WHERE scraped_date = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD'))
+           AND NOT EXISTS (SELECT 1 FROM history WHERE scraped_date = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')
+                                                        AND retailer_slug = rp.retailer_slug
+                                                        AND printing_unique_id = rp.printing_unique_id)
          ORDER BY scraped_date ASC`,
     args: [cardUniqueId, cardUniqueId],
   });
