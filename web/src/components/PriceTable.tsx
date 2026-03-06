@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { RetailerPrice } from "@/lib/types";
 import { formatPrice, getRetailerColor } from "@/lib/utils";
 import { StockBadge, FoilingBadge, ConditionBadge, RarityBadge } from "./Badge";
@@ -24,6 +24,11 @@ export default function PriceTable({
   const [printingFilter, setPrintingFilter] = useState<string>(
     initialPrintingId && initialHasStock ? initialPrintingId : "all"
   );
+
+  // Sync printing filter when parent selects a printing from the table
+  useEffect(() => {
+    setPrintingFilter(initialPrintingId ?? "all");
+  }, [initialPrintingId]);
 
   if (prices.length === 0) {
     return (

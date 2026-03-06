@@ -8,9 +8,9 @@ import {
 } from "@/lib/queries";
 import { auth } from "@/auth";
 import CardImage from "@/components/CardImage";
-import { ColorBadge, LegalBadge, PitchDot, FoilingBadge, RarityBadge } from "@/components/Badge";
-import PriceTable from "@/components/PriceTable";
+import { ColorBadge, LegalBadge, PitchDot } from "@/components/Badge";
 import PriceChart from "@/components/PriceChart";
+import CardPrintingsAndPrices from "@/components/CardPrintingsAndPrices";
 import WatchlistButton from "@/components/WatchlistButton";
 import CardActions from "@/components/CardActions";
 
@@ -139,68 +139,12 @@ export default async function CardDetailPage({
             <p className="text-gray-400">{card.type_text}</p>
           </div>
 
-          {/* Printings */}
-          {printings.length > 0 && (
-            <section className="mb-8">
-              <h2 className="text-xl font-bold mb-4">
-                Printings ({printings.length})
-              </h2>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-700 text-gray-400">
-                      <th className="text-left py-2 px-2">Card ID</th>
-                      <th className="text-left py-2 px-2">Set</th>
-                      <th className="text-left py-2 px-2">Edition</th>
-                      <th className="text-left py-2 px-2">Foiling</th>
-                      <th className="text-left py-2 px-2">Rarity</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {printings.map((p) => (
-                      <tr
-                        key={p.unique_id}
-                        className={`border-b border-gray-800 hover:bg-gray-800/50 transition ${preSelectedPrintingId === p.unique_id ? "bg-gray-800/70" : ""}`}
-                      >
-                        <td className="py-2 px-2">
-                          <Link
-                            href={`/cards/${p.unique_id}`}
-                            className="text-red-400 hover:text-red-300 font-mono"
-                          >
-                            {p.card_id}
-                          </Link>
-                        </td>
-                        <td className="py-2 px-2 text-gray-300">
-                          {p.set_name || p.set_id}
-                        </td>
-                        <td className="py-2 px-2 text-gray-300">
-                          {p.edition || "—"}
-                        </td>
-                        <td className="py-2 px-2">
-                          <FoilingBadge foiling={p.foiling} foilingName={p.foiling_name} />
-                        </td>
-                        <td className="py-2 px-2">
-                          <RarityBadge rarity={p.rarity} rarityName={p.rarity_name} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
-
-          {/* Price Comparison */}
-          <section className="mb-8">
-            <h2 className="text-xl font-bold mb-4">
-              Price Comparison ({prices.length} listing
-              {prices.length !== 1 ? "s" : ""})
-            </h2>
-            <PriceTable
-              prices={prices}
-              initialPrintingId={preSelectedPrintingId}
-            />
-          </section>
+          {/* Printings + Price Comparison (click a printing row to filter prices) */}
+          <CardPrintingsAndPrices
+            printings={printings}
+            prices={prices}
+            initialPrintingId={preSelectedPrintingId}
+          />
 
           {/* Price History Chart */}
           <section className="mb-8">
