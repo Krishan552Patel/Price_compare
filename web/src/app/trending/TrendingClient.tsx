@@ -36,6 +36,7 @@ const EDITION_NAMES: Record<string, string> = {
 };
 
 const DAYS_OPTIONS = [
+  { value: 1, label: "Today" },
   { value: 7, label: "7d" },
   { value: 14, label: "14d" },
   { value: 30, label: "30d" },
@@ -66,9 +67,10 @@ interface Props {
 
 export default function TrendingClient({ initialCards }: Props) {
   // Filters (raw — update on every keystroke for number inputs)
-  const [days, setDays] = useState<7 | 14 | 30 | 90>(7);
+  const [days, setDays] = useState<1 | 7 | 14 | 30 | 90>(7);
   const [direction, setDirection] = useState<"up" | "down" | "both">("both");
-  const [minMove, setMinMove] = useState("1.00");
+  const [sortBy, setSortBy] = useState<"dollar" | "percent">("dollar");
+  const [minMove, setMinMove] = useState("0.00");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [rarity, setRarity] = useState("");
@@ -79,7 +81,7 @@ export default function TrendingClient({ initialCards }: Props) {
 
   // Debounced values for number inputs — only update (and trigger fetch) 400ms
   // after the user stops typing, so we don't hammer the API on every keystroke.
-  const [debouncedMinMove, setDebouncedMinMove] = useState("1.00");
+  const [debouncedMinMove, setDebouncedMinMove] = useState("0.00");
   const [debouncedMinPrice, setDebouncedMinPrice] = useState("");
   const [debouncedMaxPrice, setDebouncedMaxPrice] = useState("");
 
@@ -131,6 +133,7 @@ export default function TrendingClient({ initialCards }: Props) {
     const p = new URLSearchParams();
     p.set("days", String(days));
     p.set("direction", direction);
+    p.set("sortBy", sortBy);
     p.set("minMove", debouncedMinMove || "0");
     if (debouncedMinPrice) p.set("minPrice", debouncedMinPrice);
     if (debouncedMaxPrice) p.set("maxPrice", debouncedMaxPrice);
@@ -147,7 +150,7 @@ export default function TrendingClient({ initialCards }: Props) {
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [days, direction, debouncedMinMove, debouncedMinPrice, debouncedMaxPrice, rarity, foiling, set, cardClass]);
+  }, [days, direction, sortBy, debouncedMinMove, debouncedMinPrice, debouncedMaxPrice, rarity, foiling, set, cardClass]);
 
   useEffect(() => {
     if (!hasMounted.current) {
@@ -224,6 +227,37 @@ export default function TrendingClient({ initialCards }: Props) {
                   {opt.label}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Sort By */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+              Sort By
+            </label>
+            <div className="flex rounded-lg overflow-hidden border border-gray-700">
+              <button
+                onClick={() => setSortBy("dollar")}
+                className={cx(
+                  "px-4 py-2 text-sm font-medium transition",
+                  sortBy === "dollar"
+                    ? "bg-red-600 text-white"
+                    : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
+                )}
+              >
+                $ Change
+              </button>
+              <button
+                onClick={() => setSortBy("percent")}
+                className={cx(
+                  "px-4 py-2 text-sm font-medium transition",
+                  sortBy === "percent"
+                    ? "bg-red-600 text-white"
+                    : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
+                )}
+              >
+                % Change
+              </button>
             </div>
           </div>
 

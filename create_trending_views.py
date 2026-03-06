@@ -26,7 +26,7 @@ if not NEON_URL:
     print("ERROR: NEON_DATABASE_URL not set")
     sys.exit(1)
 
-WINDOWS = [7, 14, 30, 90]
+WINDOWS = [1, 7, 14, 30, 90]
 
 # ── CTE block (shared across all windows, only INTERVAL changes) ──────────────
 #

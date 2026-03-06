@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
   const set = sp.get("set") || undefined;
   const edition = sp.get("edition") || undefined;
   const cardClass = sp.get("class") || undefined;
+  const sortBy = (sp.get("sortBy") === "percent" ? "percent" : "dollar") as "dollar" | "percent";
 
   const cards = await getCachedTrending({
     days,
@@ -41,6 +42,7 @@ export async function GET(req: NextRequest) {
     set,
     edition,
     class: cardClass,
+    sortBy,
   });
 
   return NextResponse.json(cards, {

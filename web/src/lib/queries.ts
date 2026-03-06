@@ -1102,7 +1102,7 @@ export async function getAvailableFusions(
 // TRENDING
 // ============================================================
 
-const VALID_DAYS = [7, 14, 30, 90] as const;
+const VALID_DAYS = [1, 7, 14, 30, 90] as const;
 type TrendingDays = (typeof VALID_DAYS)[number];
 
 export async function getTrendingCards(params: {
@@ -1116,14 +1116,17 @@ export async function getTrendingCards(params: {
   set?: string;
   edition?: string;
   class?: string;
+  sortBy?: "dollar" | "percent";
 }): Promise<TrendingCard[]> {
   try {
     const {
       direction = "both",
-      minMove = 1,
+      minMove = 0,
       minPrice = 0,
       maxPrice = 999999,
+      sortBy = "dollar",
     } = params;
+    const sortCol = sortBy === "percent" ? "percent_change" : "price_change";
 
     // Validate days against whitelist — also determines which MV to query
     const safeDays: TrendingDays = VALID_DAYS.includes(params.days as TrendingDays)
@@ -1185,7 +1188,7 @@ export async function getTrendingCards(params: {
         t.percent_change
       FROM ${mv} t
       ${whereClause}
-      ORDER BY ABS(t.price_change) DESC
+      ORDER BY ABS(t.${sortCol}) DESC
       LIMIT 200
     `;
 

@@ -576,7 +576,7 @@ def main():
 
             # 5. Refresh trending materialized views (concurrent — no table lock)
             log(f"\n[5/5] Refreshing trending materialized views...")
-            for days in [7, 14, 30, 90]:
+            for days in [1, 7, 14, 30, 90]:
                 mv = f"trending_mv_{days}d"
                 log(f"  Refreshing {mv}...")
                 cur.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {mv}")

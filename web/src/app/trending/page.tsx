@@ -11,7 +11,8 @@ export default async function TrendingPage() {
   const initialCards = await getTrendingCards({
     days: 7,
     direction: "both",
-    minMove: 1,
+    minMove: 0,
+    sortBy: "dollar",
   });
 
   return <TrendingClient initialCards={initialCards} />;
