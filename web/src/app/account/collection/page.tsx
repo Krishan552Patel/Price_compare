@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import CardImage from "@/components/CardImage";
@@ -102,6 +102,17 @@ function CollectionPageInner() {
   const [sort, setSort] = useState<SortKey>("name_asc");
   // Search stays local to avoid re-pushing URL on every keystroke
   const [search, setSearch] = useState("");
+
+  // ── CSV Import state ──────────────────────────────────────────────────────
+  type ImportRow = {
+    printingUniqueId: string; cardName: string;
+    quantity: number; condition: string;
+    acquiredPrice: number | null; notes: string | null;
+  };
+  const importRef = useRef<HTMLInputElement>(null);
+  const [importModal, setImportModal] = useState<"preview" | "importing" | "done" | null>(null);
+  const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  const [importResult, setImportResult] = useState<{ imported: number; errors: { row: number; reason: string }[] } | null>(null);
 
   // ── Data loading ─────────────────────────────────────────────────────────
 
@@ -226,18 +237,115 @@ function CollectionPageInner() {
     router.push("/account/collection");
   }
 
+  // ── CSV Export ────────────────────────────────────────────────────────────
+
+  function exportCSV() {
+    const headers = ["printing_unique_id","card_name","card_id","set_id","edition","foiling","rarity","quantity","condition","acquired_price","notes"];
+    const esc = (v: string | number | null | undefined) => {
+      const s = String(v ?? "");
+      return s.includes(",") ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [headers.join(",")];
+    for (const row of rows) {
+      lines.push([
+        esc(row.printing_unique_id), esc(row.card_name), esc(row.card_id),
+        esc(row.set_id), esc(row.edition), esc(row.foiling), esc(row.rarity),
+        esc(row.quantity), esc(row.condition), esc(row.acquired_price), esc(row.notes),
+      ].join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `k-cards-collection-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── CSV Import ────────────────────────────────────────────────────────────
+
+  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text.trim().split(/\r?\n/);
+      if (lines.length < 2) { alert("CSV is empty or has no data rows."); return; }
+      const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
+      const pidIdx   = headers.indexOf("printing_unique_id");
+      const nameIdx  = headers.indexOf("card_name");
+      const qtyIdx   = headers.indexOf("quantity");
+      const condIdx  = headers.indexOf("condition");
+      const priceIdx = headers.indexOf("acquired_price");
+      const notesIdx = headers.indexOf("notes");
+      if (pidIdx === -1) { alert("CSV must have a 'printing_unique_id' column."); return; }
+      const parsed: ImportRow[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(",").map(c => c.trim().replace(/^"|"$/g, ""));
+        const pid = cols[pidIdx];
+        if (!pid) continue;
+        const cond = condIdx >= 0 ? cols[condIdx] : "";
+        parsed.push({
+          printingUniqueId: pid,
+          cardName: nameIdx >= 0 ? (cols[nameIdx] || "") : "",
+          quantity: Math.max(1, parseInt(cols[qtyIdx] || "1", 10) || 1),
+          condition: ["NM","LP","MP","HP","DMG"].includes(cond) ? cond : "NM",
+          acquiredPrice: priceIdx >= 0 && cols[priceIdx] ? parseFloat(cols[priceIdx]) || null : null,
+          notes: notesIdx >= 0 ? cols[notesIdx] || null : null,
+        });
+      }
+      if (!parsed.length) { alert("No valid rows found in CSV."); return; }
+      setImportRows(parsed);
+      setImportResult(null);
+      setImportModal("preview");
+    };
+    reader.readAsText(file);
+  }
+
+  async function confirmImport() {
+    setImportModal("importing");
+    const res = await fetch("/api/account/collection/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rows: importRows }),
+    });
+    const data = await res.json();
+    setImportResult(data);
+    setImportModal("done");
+    if (data.imported > 0) load();
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
 
       {/* ── Page header ───────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-white">My Collection</h1>
-        <Link
-          href="/cards"
-          className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-medium transition"
-        >
-          + Add Cards
-        </Link>
+        <div className="flex items-center gap-2">
+          {rows.length > 0 && (
+            <button
+              onClick={exportCSV}
+              className="px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded-lg text-sm font-medium transition"
+            >
+              ↓ Export CSV
+            </button>
+          )}
+          <button
+            onClick={() => importRef.current?.click()}
+            className="px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded-lg text-sm font-medium transition"
+          >
+            ↑ Import CSV
+          </button>
+          <input ref={importRef} type="file" accept=".csv" className="hidden" onChange={handleImportFile} />
+          <Link
+            href="/cards"
+            className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-medium transition"
+          >
+            + Add Cards
+          </Link>
+        </div>
       </div>
 
       {/* ── Summary bar ────────────────────────────────────────────────────── */}
@@ -493,6 +601,109 @@ function CollectionPageInner() {
               Showing {visibleRows.length} of {rows.length} entries
             </p>
           )}
+        </div>
+      )}
+
+      {/* ── Import Modal ────────────────────────────────────────────────────── */}
+      {importModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg shadow-2xl">
+
+            {importModal === "preview" && (
+              <>
+                <div className="px-5 py-4 border-b border-gray-800">
+                  <h2 className="text-lg font-bold text-white">Import CSV</h2>
+                  <p className="text-sm text-gray-400 mt-0.5">
+                    Found <span className="text-white font-semibold">{importRows.length}</span> card{importRows.length !== 1 ? "s" : ""} — quantities will be added to existing entries.
+                  </p>
+                </div>
+                <div className="px-5 py-3 max-h-60 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-gray-500 border-b border-gray-800">
+                        <th className="text-left pb-2 font-medium">Card</th>
+                        <th className="text-center pb-2 font-medium">Qty</th>
+                        <th className="text-center pb-2 font-medium">Cond</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importRows.slice(0, 10).map((r, i) => (
+                        <tr key={i} className="border-b border-gray-800/50">
+                          <td className="py-1.5 text-gray-300 truncate max-w-[220px]">
+                            {r.cardName || r.printingUniqueId}
+                          </td>
+                          <td className="py-1.5 text-center text-white font-semibold">{r.quantity}</td>
+                          <td className="py-1.5 text-center text-gray-400">{r.condition}</td>
+                        </tr>
+                      ))}
+                      {importRows.length > 10 && (
+                        <tr>
+                          <td colSpan={3} className="py-2 text-center text-gray-600 text-xs">
+                            …and {importRows.length - 10} more
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="px-5 py-4 border-t border-gray-800 flex gap-2 justify-end">
+                  <button
+                    onClick={() => setImportModal(null)}
+                    className="px-4 py-2 text-sm text-gray-400 hover:text-white transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmImport}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-medium transition"
+                  >
+                    Import {importRows.length} card{importRows.length !== 1 ? "s" : ""}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {importModal === "importing" && (
+              <div className="px-5 py-10 text-center">
+                <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-sm text-gray-400">Importing cards…</p>
+              </div>
+            )}
+
+            {importModal === "done" && importResult && (
+              <>
+                <div className="px-5 py-4 border-b border-gray-800">
+                  <h2 className="text-lg font-bold text-white">Import Complete</h2>
+                </div>
+                <div className="px-5 py-4 space-y-2">
+                  <p className="text-sm text-green-400 font-medium">
+                    ✓ {importResult.imported} card{importResult.imported !== 1 ? "s" : ""} imported successfully
+                  </p>
+                  {importResult.errors.length > 0 && (
+                    <div>
+                      <p className="text-sm text-red-400 font-medium mb-1">
+                        ✕ {importResult.errors.length} row{importResult.errors.length !== 1 ? "s" : ""} failed
+                      </p>
+                      <div className="max-h-28 overflow-y-auto space-y-1">
+                        {importResult.errors.map((e, i) => (
+                          <p key={i} className="text-xs text-gray-500">Row {e.row}: {e.reason}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="px-5 py-4 border-t border-gray-800 flex justify-end">
+                  <button
+                    onClick={() => setImportModal(null)}
+                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition"
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            )}
+
+          </div>
         </div>
       )}
     </div>
