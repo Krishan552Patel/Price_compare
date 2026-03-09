@@ -183,7 +183,7 @@ export async function getCardPrices(
     rarity: row.rarity as string | null,
     rarity_name: row.rarity_name as string | null,
     set_name: row.set_name as string | null,
-    condition: (row.condition as CardCondition) || 'NM',
+    condition: (row.condition as CardCondition) ?? 'NM',
     updated_at: row.updated_at as string,
   }));
 }
@@ -233,7 +233,7 @@ export async function getPriceHistory(
     card_id: row.card_id as string,
     foiling: row.foiling as string | null,
     edition: row.edition as string | null,
-    condition: (row.condition as CardCondition) || 'NM',
+    condition: (row.condition as CardCondition) ?? 'NM',
   }));
 }
 

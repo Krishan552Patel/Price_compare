@@ -284,6 +284,24 @@ def build_history_variant_set(cur):
     return {(row[0], str(row[1])) for row in cur.fetchall()}
 
 
+def build_today_history_set(cur, today):
+    """
+    Return the set of (retailer_slug, shopify_variant_id) pairs that already
+    have a price_history row for TODAY.
+
+    Used to ensure unchanged variants still get a daily snapshot on the first
+    scrape of each day (subsequent scrapes on the same day skip them again).
+    This gives the price chart continuous daily data instead of only showing
+    days where prices changed.
+    """
+    cur.execute("""
+        SELECT DISTINCT retailer_slug, shopify_variant_id
+        FROM price_history
+        WHERE scraped_date = %s
+    """, (today,))
+    return {(row[0], str(row[1])) for row in cur.fetchall()}
+
+
 def purge_old_history(cur):
     """
     Delete price_history rows older than HISTORY_RETENTION_DAYS.
@@ -297,7 +315,7 @@ def purge_old_history(cur):
     return cur.rowcount
 
 
-def process_retailer(slug, info, card_index, today, last_prices, variants_with_history):
+def process_retailer(slug, info, card_index, today, last_prices, variants_with_history, today_history_set):
     """
     Scrape one retailer and return (product_rows, history_rows, stats).
     All DB writes happen outside this function so they can be batched.
@@ -306,6 +324,10 @@ def process_retailer(slug, info, card_index, today, last_prices, variants_with_h
     have at least one price_history row. Variants in last_prices (i.e. known
     to retailer_products) but NOT in this set receive a baseline history entry
     even when the price hasn't changed, so chart data is never missing.
+
+    today_history_set: set of (retailer_slug, variant_id) that already have a
+    row for TODAY. Unchanged variants are still written once per day (on the
+    first scrape of the day) so the chart has continuous daily data.
     """
     products = fetch_all_products(info["name"], info["base_url"])
     log(f"  Fetched {len(products)} products. Processing...")
@@ -372,9 +394,13 @@ def process_retailer(slug, info, card_index, today, last_prices, variants_with_h
             #     at the OLD price then today's row at the NEW price. The anchor
             #     keeps the pre-change value inside every trending window so
             #     movements are always visible.
-            #   • No change AND already has history → skip (no redundant rows)
+            #   • No change, but no row for today yet → write a daily snapshot
+            #     so the chart has continuous data (runs once per day per variant
+            #     on the first scrape of the day; ON CONFLICT handles dedup).
+            #   • No change AND already has today's row → skip.
             last = last_prices.get((slug, variant_id))
             has_history = (slug, variant_id) in variants_with_history
+            has_today = (slug, variant_id) in today_history_set
             if last is None or not has_history:
                 # Never seen before, or known but missing a baseline history row
                 history_rows.append((
@@ -396,6 +422,14 @@ def process_retailer(slug, info, card_index, today, last_prices, variants_with_h
                     slug, variant_id, title, variant_title,
                     price_cad, available, printing_uid, condition, today,
                 ))
+            elif not has_today:
+                # Price unchanged but no snapshot for today yet (first scrape of
+                # the day). Write a keepalive row so the chart never has gaps.
+                history_rows.append((
+                    slug, variant_id, title, variant_title,
+                    price_cad, available, printing_uid, condition, today,
+                ))
+                history_skipped += 1
             else:
                 history_skipped += 1
 
@@ -539,12 +573,16 @@ def main():
             log("\n[4/5] Scraping retailers...")
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+            log(f"\n[3c/5] Loading today's history set (daily snapshot, {today})...")
+            today_history_set = build_today_history_set(cur, today)
+            log(f"  {len(today_history_set):,} variants already have a row for today")
+
             for slug, info in RETAILERS.items():
                 log(f"\n--- {info['name']} ---")
                 start_time = time.time()
 
                 product_rows, history_rows, stats, seen_ids = process_retailer(
-                    slug, info, card_index, today, last_prices, variants_with_history
+                    slug, info, card_index, today, last_prices, variants_with_history, today_history_set
                 )
 
                 log(f"  Writing {len(product_rows)} product rows (batch)...")

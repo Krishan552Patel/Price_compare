@@ -18,7 +18,7 @@ interface ChartDataPoint {
 }
 
 const FOILING_NAMES: Record<string, string> = {
-  S: "Non-Foil",
+  S: "Standard",
   R: "Rainbow Foil",
   C: "Cold Foil",
   G: "Gold Cold Foil",
@@ -73,6 +73,7 @@ function ChartTooltip({ active, payload, label }: any) {
 export default function PriceChart({ cardUniqueId }: { cardUniqueId: string }) {
   const [rawData, setRawData] = useState<PriceHistoryPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>("all");
   const [conditionFilter, setConditionFilter] = useState<ConditionFilter>("NM");
   const [printingFilter, setPrintingFilter] = useState<string>("all");
@@ -82,11 +83,15 @@ export default function PriceChart({ cardUniqueId }: { cardUniqueId: string }) {
   useEffect(() => {
     setLoading(true);
     setRawData([]);
+    setFetchError(null);
     setRetailersInitialized(false);
     fetch(`/api/card/${encodeURIComponent(cardUniqueId)}/history`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then((pts: PriceHistoryPoint[]) => setRawData(pts))
-      .catch(() => {})
+      .catch(() => setFetchError("Could not load price history. Try refreshing."))
       .finally(() => setLoading(false));
   }, [cardUniqueId]);
 
@@ -147,14 +152,20 @@ export default function PriceChart({ cardUniqueId }: { cardUniqueId: string }) {
     const dateMap = new Map<string, ChartDataPoint>();
     const keySet = new Set<string>();
     const labels: Record<string, string> = {};
+    const multiCondition = conditionFilter === "all";
 
     for (const point of filteredData) {
-      const key = `${point.retailer_slug}_${point.printing_unique_id}`;
+      // Include condition in the key so NM and LP are separate series and
+      // never overwrite each other (e.g. NM=$10 and LP=$5 on the same date).
+      const key = `${point.retailer_slug}_${point.printing_unique_id}_${point.condition}`;
       keySet.add(key);
       const retailer = RETAILER_NAMES[point.retailer_slug] || point.retailer_slug;
-      const foil = FOILING_NAMES[point.foiling || "S"] || "NF";
+      const foil = FOILING_NAMES[point.foiling || "S"] || "Standard";
       const ed = point.edition ? (EDITION_NAMES[point.edition] ?? point.edition) : "";
-      labels[key] = [retailer, ed, foil].filter(Boolean).join(" · ");
+      // Only append condition to label when "all" is selected (avoids redundancy
+      // when a single condition is already chosen via the filter pills).
+      const condLabel = multiCondition ? point.condition : "";
+      labels[key] = [retailer, ed, foil, condLabel].filter(Boolean).join(" · ");
 
       const dateKey = point.scraped_date.split("T")[0];
       if (!dateMap.has(dateKey)) dateMap.set(dateKey, { date: dateKey });
@@ -167,7 +178,7 @@ export default function PriceChart({ cardUniqueId }: { cardUniqueId: string }) {
       (a.date as string).localeCompare(b.date as string)
     );
     return { chartData: sorted, seriesKeys: Array.from(keySet), seriesLabels: labels, isSparse: sorted.length <= 5 };
-  }, [filteredData]);
+  }, [filteredData, conditionFilter]);
 
   // Current price per retailer (min across printings on the last chart date)
   const retailerCurrentPrices = useMemo(() => {
@@ -220,6 +231,18 @@ export default function PriceChart({ cardUniqueId }: { cardUniqueId: string }) {
         <div className="grid grid-cols-3 gap-2">
           {[1, 2, 3].map((i) => <div key={i} className="h-16 bg-gray-800/60 rounded-lg animate-pulse" />)}
         </div>
+      </div>
+    );
+  }
+
+  // ── Fetch error ────────────────────────────────────────────────────────────
+  if (fetchError) {
+    return (
+      <div className="h-52 flex flex-col items-center justify-center gap-2 text-center">
+        <svg className="w-9 h-9 text-red-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+        <p className="text-gray-400 font-medium text-sm">{fetchError}</p>
       </div>
     );
   }
