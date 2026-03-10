@@ -81,7 +81,7 @@ export default function TrendingClient({ initialCards }: Props) {
 
   // Debounced values for number inputs — only update (and trigger fetch) 400ms
   // after the user stops typing, so we don't hammer the API on every keystroke.
-  const [debouncedMinMove, setDebouncedMinMove] = useState("0.00");
+  const [debouncedMinMove, setDebouncedMinMove] = useState("1.00");
   const [debouncedMinPrice, setDebouncedMinPrice] = useState("");
   const [debouncedMaxPrice, setDebouncedMaxPrice] = useState("");
 
@@ -157,6 +157,7 @@ export default function TrendingClient({ initialCards }: Props) {
       hasMounted.current = true;
       return; // skip — we already have SSR data matching the defaults
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTrending();
   }, [fetchTrending]);
 
@@ -245,7 +246,7 @@ export default function TrendingClient({ initialCards }: Props) {
                     : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
                 )}
               >
-                $ Change
+                CA$
               </button>
               <button
                 onClick={() => setSortBy("percent")}
@@ -256,7 +257,7 @@ export default function TrendingClient({ initialCards }: Props) {
                     : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
                 )}
               >
-                % Change
+                %
               </button>
             </div>
           </div>
