@@ -1338,6 +1338,73 @@ export async function getAvailableSpecializations(
 // ── Deck Checkout ────────────────────────────────────────────────────────────
 
 /**
+ * Returns ALL in-stock NM listings for a card across every retailer, foiling, and edition.
+ * Used by the deck checkout feature so the frontend can let users pick retailer/foiling.
+ */
+export async function getDeckCardAllPrices(
+  name: string,
+  pitch: string | null
+): Promise<Array<{
+  card_name: string;
+  card_unique_id: string;
+  image_url: string | null;
+  retailer_slug: string;
+  retailer_name: string;
+  shopify_variant_id: string;
+  price_cad: number;
+  product_url: string;
+  foiling: string | null;
+  edition: string | null;
+  rarity: string | null;
+}>> {
+  try {
+    const result = await db.execute({
+      sql: `
+        SELECT
+          c.name             AS card_name,
+          c.unique_id        AS card_unique_id,
+          p.image_url,
+          p.foiling,
+          p.edition,
+          p.rarity,
+          rp.retailer_slug,
+          ret.name           AS retailer_name,
+          rp.shopify_variant_id,
+          rp.price_cad,
+          rp.product_url
+        FROM retailer_products rp
+        JOIN printings p   ON rp.printing_unique_id = p.unique_id
+        JOIN cards c       ON p.card_unique_id = c.unique_id
+        JOIN retailers ret ON rp.retailer_slug = ret.slug
+        WHERE LOWER(c.name) = LOWER(?)
+          AND (?::text IS NULL OR c.pitch = ?)
+          AND rp.condition = 'NM'
+          AND rp.in_stock = 1
+          AND rp.price_cad > 0
+        ORDER BY p.foiling, rp.price_cad ASC
+      `,
+      args: [name, pitch, pitch],
+    });
+    return result.rows.map((r) => ({
+      card_name: r.card_name as string,
+      card_unique_id: r.card_unique_id as string,
+      image_url: r.image_url as string | null,
+      retailer_slug: r.retailer_slug as string,
+      retailer_name: r.retailer_name as string,
+      shopify_variant_id: r.shopify_variant_id as string,
+      price_cad: Number(r.price_cad),
+      product_url: r.product_url as string,
+      foiling: r.foiling as string | null,
+      edition: r.edition as string | null,
+      rarity: r.rarity as string | null,
+    }));
+  } catch (error) {
+    console.error("getDeckCardAllPrices failed:", error);
+    return [];
+  }
+}
+
+/**
  * Find the cheapest in-stock NM listing for a card (any printing / edition / foiling).
  * pitch is "1"/"2"/"3" or null. Returns null if no listing found.
  */

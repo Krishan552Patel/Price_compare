@@ -147,28 +147,28 @@ export interface DeckCard {
   pitch: string | null; // "1"=red, "2"=yellow, "3"=blue, null=no pitch (equipment/hero)
 }
 
-export interface DeckMatch {
-  cardName: string;
-  cardUniqueId: string;
-  imageUrl: string | null;
+// A single purchasable option for a card (one retailer × one foiling × one edition)
+export interface DeckCardOption {
   retailerSlug: string;
   retailerName: string;
   variantId: string;
   price: number;
   productUrl: string;
-  foiling: string | null;
-  edition: string | null;
+  foiling: string | null;   // S=Standard, R=Rainbow Foil, C=Cold Foil, G=Gold Cold Foil
+  edition: string | null;   // A=Alpha, F=1st, U=Unlim, N=Normal
+  rarity: string | null;    // C, R, S, M, L, F, V, T, P
 }
 
-export interface DeckCheckoutResult {
+// All available options for one card in the deck list
+export interface DeckCheckoutResultV2 {
   input: DeckCard;
-  match: DeckMatch | null;
+  cardUniqueId: string | null;
+  cardName: string | null;
+  imageUrl: string | null;
+  options: DeckCardOption[];  // empty = not available anywhere
 }
 
-export interface DeckCheckoutResponse {
-  results: DeckCheckoutResult[];
-  cartUrls: Record<string, string>; // retailerSlug → Shopify cart URL
-  totalFound: number;
-  totalMissing: number;
-  grandTotal: number;
+export interface DeckCheckoutResponseV2 {
+  results: DeckCheckoutResultV2[];
+  retailers: { slug: string; name: string }[];
 }
