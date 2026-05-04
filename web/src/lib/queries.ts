@@ -1,5 +1,6 @@
 import db from "./db";
 import { parseJsonArray, normalizeCardId } from "./utils";
+import { withCache, getPriceTTL, TTL } from "./cache";
 import type {
   Card,
   Printing,
@@ -47,40 +48,42 @@ export async function searchCards(
 // ============================================================
 
 export async function getCard(uniqueId: string): Promise<Card | null> {
-  const result = await db.execute({
-    sql: `SELECT c.*,
-           (SELECT p.image_url FROM printings p WHERE p.card_unique_id = c.unique_id
-            AND p.image_url IS NOT NULL LIMIT 1) as image_url
-         FROM cards c
-         WHERE c.unique_id = ?`,
-    args: [uniqueId],
+  return withCache(`fab:card:${uniqueId}`, TTL.CARD, async () => {
+    const result = await db.execute({
+      sql: `SELECT c.*,
+             (SELECT p.image_url FROM printings p WHERE p.card_unique_id = c.unique_id
+              AND p.image_url IS NOT NULL LIMIT 1) as image_url
+           FROM cards c
+           WHERE c.unique_id = ?`,
+      args: [uniqueId],
+    });
+
+    if (result.rows.length === 0) return null;
+    const row = result.rows[0];
+
+    return {
+      unique_id: row.unique_id as string,
+      name: row.name as string,
+      color: row.color as string | null,
+      pitch: row.pitch as string | null,
+      cost: row.cost as string | null,
+      power: row.power as string | null,
+      defense: row.defense as string | null,
+      health: row.health as string | null,
+      intelligence: row.intelligence as string | null,
+      types: parseJsonArray(row.types as string),
+      traits: parseJsonArray(row.traits as string),
+      card_keywords: parseJsonArray(row.card_keywords as string),
+      functional_text: row.functional_text as string | null,
+      functional_text_plain: row.functional_text_plain as string | null,
+      type_text: row.type_text as string | null,
+      blitz_legal: row.blitz_legal as number,
+      cc_legal: row.cc_legal as number,
+      commoner_legal: row.commoner_legal as number,
+      ll_legal: row.ll_legal as number,
+      image_url: row.image_url as string | null,
+    };
   });
-
-  if (result.rows.length === 0) return null;
-  const row = result.rows[0];
-
-  return {
-    unique_id: row.unique_id as string,
-    name: row.name as string,
-    color: row.color as string | null,
-    pitch: row.pitch as string | null,
-    cost: row.cost as string | null,
-    power: row.power as string | null,
-    defense: row.defense as string | null,
-    health: row.health as string | null,
-    intelligence: row.intelligence as string | null,
-    types: parseJsonArray(row.types as string),
-    traits: parseJsonArray(row.traits as string),
-    card_keywords: parseJsonArray(row.card_keywords as string),
-    functional_text: row.functional_text as string | null,
-    functional_text_plain: row.functional_text_plain as string | null,
-    type_text: row.type_text as string | null,
-    blitz_legal: row.blitz_legal as number,
-    cc_legal: row.cc_legal as number,
-    commoner_legal: row.commoner_legal as number,
-    ll_legal: row.ll_legal as number,
-    image_url: row.image_url as string | null,
-  };
 }
 
 export async function getPrintingParent(
@@ -98,36 +101,38 @@ export async function getPrintingParent(
 export async function getCardPrintings(
   cardUniqueId: string
 ): Promise<Printing[]> {
-  const result = await db.execute({
-    sql: `SELECT p.unique_id, p.card_unique_id, p.card_id, p.set_id,
-           s.name as set_name, p.edition, p.foiling, p.rarity,
-           r.name as rarity_name, f.name as foiling_name,
-           p.image_url, p.tcgplayer_url, p.artists, p.flavor_text
-         FROM printings p
-         LEFT JOIN sets s ON p.set_id = s.set_code
-         LEFT JOIN rarities r ON p.rarity = r.unique_id
-         LEFT JOIN foilings f ON p.foiling = f.unique_id
-         WHERE p.card_unique_id = ?
-         ORDER BY p.set_id, p.edition, p.foiling`,
-    args: [cardUniqueId],
-  });
+  return withCache(`fab:printings:${cardUniqueId}`, TTL.PRINTINGS, async () => {
+    const result = await db.execute({
+      sql: `SELECT p.unique_id, p.card_unique_id, p.card_id, p.set_id,
+             s.name as set_name, p.edition, p.foiling, p.rarity,
+             r.name as rarity_name, f.name as foiling_name,
+             p.image_url, p.tcgplayer_url, p.artists, p.flavor_text
+           FROM printings p
+           LEFT JOIN sets s ON p.set_id = s.set_code
+           LEFT JOIN rarities r ON p.rarity = r.unique_id
+           LEFT JOIN foilings f ON p.foiling = f.unique_id
+           WHERE p.card_unique_id = ?
+           ORDER BY p.set_id, p.edition, p.foiling`,
+      args: [cardUniqueId],
+    });
 
-  return result.rows.map((row) => ({
-    unique_id: row.unique_id as string,
-    card_unique_id: row.card_unique_id as string,
-    card_id: row.card_id as string,
-    set_id: row.set_id as string,
-    set_name: row.set_name as string | null,
-    edition: row.edition as string | null,
-    foiling: row.foiling as string | null,
-    rarity: row.rarity as string | null,
-    rarity_name: row.rarity_name as string | null,
-    foiling_name: row.foiling_name as string | null,
-    image_url: row.image_url as string | null,
-    tcgplayer_url: row.tcgplayer_url as string | null,
-    artists: parseJsonArray(row.artists as string),
-    flavor_text: row.flavor_text as string | null,
-  }));
+    return result.rows.map((row) => ({
+      unique_id: row.unique_id as string,
+      card_unique_id: row.card_unique_id as string,
+      card_id: row.card_id as string,
+      set_id: row.set_id as string,
+      set_name: row.set_name as string | null,
+      edition: row.edition as string | null,
+      foiling: row.foiling as string | null,
+      rarity: row.rarity as string | null,
+      rarity_name: row.rarity_name as string | null,
+      foiling_name: row.foiling_name as string | null,
+      image_url: row.image_url as string | null,
+      tcgplayer_url: row.tcgplayer_url as string | null,
+      artists: parseJsonArray(row.artists as string),
+      flavor_text: row.flavor_text as string | null,
+    }));
+  });
 }
 
 // ============================================================
@@ -137,6 +142,16 @@ export async function getCardPrintings(
 export async function getCardPrices(
   cardUniqueId: string,
   inStockOnly: boolean = true
+): Promise<RetailerPrice[]> {
+  const ttl = await getPriceTTL(cardUniqueId);
+  return withCache(`fab:prices:${cardUniqueId}:${inStockOnly ? 1 : 0}`, ttl, () =>
+    _fetchCardPrices(cardUniqueId, inStockOnly)
+  );
+}
+
+async function _fetchCardPrices(
+  cardUniqueId: string,
+  inStockOnly: boolean
 ): Promise<RetailerPrice[]> {
   const stockFilter = inStockOnly ? "AND rp.in_stock = 1" : "";
 
@@ -191,62 +206,58 @@ export async function getCardPrices(
 export async function getPriceHistory(
   cardUniqueId: string
 ): Promise<PriceHistoryPoint[]> {
-  // When a card has no recorded history yet (baseline missing), fall back to
-  // today's snapshot from retailer_products so the chart is never blank.
-  const result = await db.execute({
-    sql: `WITH history AS (
-           SELECT TO_CHAR(ph.scraped_date::date, 'YYYY-MM-DD') AS scraped_date,
-                  ph.price_cad, ph.in_stock,
-                  ph.retailer_slug, ret.name AS retailer_name,
-                  ph.printing_unique_id, p.card_id, p.foiling, p.edition, ph.condition
-           FROM price_history ph
-           JOIN retailers ret ON ph.retailer_slug = ret.slug
-           JOIN printings p   ON ph.printing_unique_id = p.unique_id
+  return withCache(`fab:history:${cardUniqueId}`, TTL.HISTORY, async () => {
+    // When a card has no recorded history yet (baseline missing), fall back to
+    // today's snapshot from retailer_products so the chart is never blank.
+    const result = await db.execute({
+      sql: `WITH history AS (
+             SELECT TO_CHAR(ph.scraped_date::date, 'YYYY-MM-DD') AS scraped_date,
+                    ph.price_cad, ph.in_stock,
+                    ph.retailer_slug, ret.name AS retailer_name,
+                    ph.printing_unique_id, p.card_id, p.foiling, p.edition, ph.condition
+             FROM price_history ph
+             JOIN retailers ret ON ph.retailer_slug = ret.slug
+             JOIN printings p   ON ph.printing_unique_id = p.unique_id
+             WHERE p.card_unique_id = ?
+               AND ph.in_stock = 1
+           )
+           SELECT * FROM history
+           UNION ALL
+           SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') AS scraped_date,
+                  rp.price_cad, 1::int AS in_stock,
+                  rp.retailer_slug, ret.name AS retailer_name,
+                  rp.printing_unique_id, p.card_id, p.foiling, p.edition, rp.condition
+           FROM retailer_products rp
+           JOIN retailers ret ON rp.retailer_slug = ret.slug
+           JOIN printings p   ON rp.printing_unique_id = p.unique_id
            WHERE p.card_unique_id = ?
-             AND ph.in_stock = 1
-         )
-         SELECT * FROM history
-         UNION ALL
-         SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') AS scraped_date,
-                rp.price_cad, 1::int AS in_stock,
-                rp.retailer_slug, ret.name AS retailer_name,
-                rp.printing_unique_id, p.card_id, p.foiling, p.edition, rp.condition
-         FROM retailer_products rp
-         JOIN retailers ret ON rp.retailer_slug = ret.slug
-         JOIN printings p   ON rp.printing_unique_id = p.unique_id
-         WHERE p.card_unique_id = ?
-           AND rp.in_stock = 1
-           AND NOT EXISTS (SELECT 1 FROM history WHERE scraped_date = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')
-                                                        AND retailer_slug = rp.retailer_slug
-                                                        AND printing_unique_id = rp.printing_unique_id)
-         ORDER BY scraped_date ASC`,
-    args: [cardUniqueId, cardUniqueId],
-  });
+             AND rp.in_stock = 1
+             AND NOT EXISTS (SELECT 1 FROM history WHERE scraped_date = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')
+                                                          AND retailer_slug = rp.retailer_slug
+                                                          AND printing_unique_id = rp.printing_unique_id)
+           ORDER BY scraped_date ASC`,
+      args: [cardUniqueId, cardUniqueId],
+    });
 
-  return result.rows.map((row) => ({
-    scraped_date: row.scraped_date as string,
-    price_cad: Number(row.price_cad),
-    in_stock: Boolean(row.in_stock),
-    retailer_slug: row.retailer_slug as string,
-    retailer_name: row.retailer_name as string,
-    printing_unique_id: row.printing_unique_id as string,
-    card_id: row.card_id as string,
-    foiling: row.foiling as string | null,
-    edition: row.edition as string | null,
-    condition: (row.condition as CardCondition) ?? 'NM',
-  }));
+    return result.rows.map((row) => ({
+      scraped_date: row.scraped_date as string,
+      price_cad: Number(row.price_cad),
+      in_stock: Boolean(row.in_stock),
+      retailer_slug: row.retailer_slug as string,
+      retailer_name: row.retailer_name as string,
+      printing_unique_id: row.printing_unique_id as string,
+      card_id: row.card_id as string,
+      foiling: row.foiling as string | null,
+      edition: row.edition as string | null,
+      condition: (row.condition as CardCondition) ?? 'NM',
+    }));
+  });
 }
 
 // ============================================================
 // BROWSE / FILTER
 // ============================================================
 
-// Cache for filter options (they rarely change)
-let filterOptionsCache: { data: FilterOptions | null; timestamp: number } = {
-  data: null,
-  timestamp: 0,
-};
-const FILTER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 // Helper: safely cast a JSON array column to json for Postgres json_array_elements_text
 function jsonArrayExpr(col: string): string {
@@ -291,11 +302,7 @@ const EDITION_NAMES: Record<string, string> = {
 const EDITION_ORDER = ["A", "F", "U", "N"];
 
 export async function getFilterOptions(): Promise<FilterOptions> {
-  const now = Date.now();
-  if (filterOptionsCache.data && now - filterOptionsCache.timestamp < FILTER_CACHE_TTL) {
-    return filterOptionsCache.data;
-  }
-
+  return withCache("fab:filters", TTL.FILTERS, async () => {
   const [
     setsResult,
     raritiesResult,
@@ -436,8 +443,8 @@ export async function getFilterOptions(): Promise<FilterOptions> {
     heroes: heroesResult.rows.map((row) => row.name as string),
   };
 
-  filterOptionsCache = { data: result, timestamp: now };
   return result;
+  });
 }
 
 export async function browseCards(params: {
@@ -1118,98 +1125,113 @@ export async function getTrendingCards(params: {
   class?: string;
   sortBy?: "dollar" | "percent";
 }): Promise<TrendingCard[]> {
+  const safeDays: TrendingDays = VALID_DAYS.includes(params.days as TrendingDays)
+    ? (params.days as TrendingDays)
+    : 7;
+
+  // Stable cache key from all params
+  const cacheKey = `fab:trending:${safeDays}:${[
+    params.direction ?? "both",
+    params.sortBy ?? "dollar",
+    params.minMove ?? 0,
+    params.minPrice ?? 0,
+    params.maxPrice ?? 999999,
+    params.rarity ?? "",
+    params.foiling ?? "",
+    params.set ?? "",
+    params.edition ?? "",
+    params.class ?? "",
+  ].join(":")}`;
+
   try {
-    const {
-      direction = "both",
-      minMove = 0,
-      minPrice = 0,
-      maxPrice = 999999,
-      sortBy = "dollar",
-    } = params;
-    const sortCol = sortBy === "percent" ? "percent_change" : "price_change";
+    return await withCache(cacheKey, TTL.TRENDING, async () => {
+      const {
+        direction = "both",
+        minMove = 0,
+        minPrice = 0,
+        maxPrice = 999999,
+        sortBy = "dollar",
+      } = params;
+      const sortCol = sortBy === "percent" ? "percent_change" : "price_change";
 
-    // Validate days against whitelist — also determines which MV to query
-    const safeDays: TrendingDays = VALID_DAYS.includes(params.days as TrendingDays)
-      ? (params.days as TrendingDays)
-      : 7;
+      // Use pre-computed materialized view instead of the 4-CTE chain.
+      // Each MV is refreshed by the scraper after every run (twice daily).
+      // safeDays is always a whitelisted integer — safe to interpolate.
+      const mv = `trending_mv_${safeDays}d`;
 
-    // Use pre-computed materialized view instead of the 4-CTE chain.
-    // Each MV is refreshed by the scraper after every run (twice daily).
-    // safeDays is always a whitelisted integer — safe to interpolate.
-    const mv = `trending_mv_${safeDays}d`;
+      const conditions: string[] = [];
+      const args: (string | number)[] = [];
 
-    const conditions: string[] = [];
-    const args: (string | number)[] = [];
+      // Direction
+      if (direction === "up")   conditions.push("t.price_change > 0");
+      if (direction === "down") conditions.push("t.price_change < 0");
 
-    // Direction
-    if (direction === "up")   conditions.push("t.price_change > 0");
-    if (direction === "down") conditions.push("t.price_change < 0");
+      // Min dollar movement
+      conditions.push("ABS(t.price_change) >= ?");
+      args.push(minMove);
 
-    // Min dollar movement
-    conditions.push("ABS(t.price_change) >= ?");
-    args.push(minMove);
+      // Price range
+      if (minPrice > 0)      { conditions.push("t.current_price >= ?"); args.push(minPrice); }
+      if (maxPrice < 999999) { conditions.push("t.current_price <= ?"); args.push(maxPrice); }
 
-    // Price range
-    if (minPrice > 0)      { conditions.push("t.current_price >= ?"); args.push(minPrice); }
-    if (maxPrice < 999999) { conditions.push("t.current_price <= ?"); args.push(maxPrice); }
+      // Printing-level filters
+      if (params.rarity)  { conditions.push("t.rarity = ?");  args.push(params.rarity); }
+      if (params.foiling) { conditions.push("t.foiling = ?"); args.push(params.foiling); }
+      if (params.set)     { conditions.push("t.set_id = ?");  args.push(params.set); }
+      if (params.edition) { conditions.push("t.edition = ?"); args.push(params.edition); }
 
-    // Printing-level filters
-    if (params.rarity)  { conditions.push("t.rarity = ?");  args.push(params.rarity); }
-    if (params.foiling) { conditions.push("t.foiling = ?"); args.push(params.foiling); }
-    if (params.set)     { conditions.push("t.set_id = ?");  args.push(params.set); }
-    if (params.edition) { conditions.push("t.edition = ?"); args.push(params.edition); }
+      // Card-level class filter (card_types stored in MV from cards.types)
+      if (params.class) {
+        conditions.push(
+          `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("t.card_types")}) cl WHERE cl = ?)`
+        );
+        args.push(params.class);
+      }
 
-    // Card-level class filter (card_types stored in MV from cards.types)
-    if (params.class) {
-      conditions.push(
-        `EXISTS (SELECT 1 FROM json_array_elements_text(${jsonArrayExpr("t.card_types")}) cl WHERE cl = ?)`
-      );
-      args.push(params.class);
-    }
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      const sql = `
+        SELECT
+          t.card_unique_id,
+          t.card_name,
+          t.type_text,
+          t.image_url,
+          t.printing_unique_id,
+          t.card_id,
+          t.set_id,
+          t.set_name,
+          t.rarity,
+          t.foiling,
+          t.edition,
+          t.current_price,
+          t.past_price,
+          t.price_change,
+          t.percent_change
+        FROM ${mv} t
+        ${whereClause}
+        ORDER BY ABS(t.${sortCol}) DESC
+        LIMIT 200
+      `;
 
-    const sql = `
-      SELECT
-        t.card_unique_id,
-        t.card_name,
-        t.type_text,
-        t.image_url,
-        t.printing_unique_id,
-        t.card_id,
-        t.set_id,
-        t.set_name,
-        t.rarity,
-        t.foiling,
-        t.edition,
-        t.current_price,
-        t.past_price,
-        t.price_change,
-        t.percent_change
-      FROM ${mv} t
-      ${whereClause}
-      ORDER BY ABS(t.${sortCol}) DESC
-      LIMIT 200
-    `;
-
-    const result = await db.execute({ sql, args });
-    return result.rows.map((row) => ({
-      card_unique_id: row.card_unique_id as string,
-      card_name: row.card_name as string,
-      type_text: row.type_text as string | null,
-      image_url: row.image_url as string | null,
-      printing_unique_id: row.printing_unique_id as string,
-      card_id: row.card_id as string,
-      set_id: row.set_id as string,
-      set_name: row.set_name as string | null,
-      rarity: row.rarity as string | null,
-      foiling: row.foiling as string | null,
-      edition: row.edition as string | null,
-      current_price: Number(row.current_price),
-      past_price: Number(row.past_price),
-      price_change: Number(row.price_change),
-      percent_change: Number(row.percent_change),
-    }));
+      const result = await db.execute({ sql, args });
+      return result.rows.map((row) => ({
+        card_unique_id: row.card_unique_id as string,
+        card_name: row.card_name as string,
+        type_text: row.type_text as string | null,
+        image_url: row.image_url as string | null,
+        printing_unique_id: row.printing_unique_id as string,
+        card_id: row.card_id as string,
+        set_id: row.set_id as string,
+        set_name: row.set_name as string | null,
+        rarity: row.rarity as string | null,
+        foiling: row.foiling as string | null,
+        edition: row.edition as string | null,
+        current_price: Number(row.current_price),
+        past_price: Number(row.past_price),
+        price_change: Number(row.price_change),
+        percent_change: Number(row.percent_change),
+      }));
+    });
   } catch (err) {
     console.error("[getTrendingCards] Error:", err);
     return [];
