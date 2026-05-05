@@ -54,6 +54,29 @@ function cheapestFor(
   );
 }
 
+// Parse the trailing number from a card_id like "WTR001" → 1
+function parseCardNum(cardId: string | null): number {
+  if (!cardId) return 9999;
+  const m = cardId.match(/(\d+)$/);
+  return m ? parseInt(m[1], 10) : 9999;
+}
+
+// Sort cards by set code then by card number within that set.
+// Uses the cheapest option for the given retailer+foiling as the sort key.
+function sortBySetAndNumber(
+  results: DeckCheckoutResultV2[],
+  getOpt: (r: DeckCheckoutResultV2) => DeckCardOption | null
+): DeckCheckoutResultV2[] {
+  return [...results].sort((a, b) => {
+    const ao = getOpt(a);
+    const bo = getOpt(b);
+    const aSet = ao?.setId ?? "";
+    const bSet = bo?.setId ?? "";
+    if (aSet !== bSet) return aSet.localeCompare(bSet);
+    return parseCardNum(ao?.cardId ?? null) - parseCardNum(bo?.cardId ?? null);
+  });
+}
+
 function buildCartUrl(slug: string, map: Map<string, number>): string | null {
   const domain = RETAILER_DOMAINS[slug];
   if (!domain || map.size === 0) return null;
@@ -215,6 +238,10 @@ function SplitSection({
 }) {
   const color = RETAILER_COLORS[slug] ?? "#6b7280";
 
+  const sorted = sortBySetAndNumber(results, (r) =>
+    cheapestFor(r.options, foilingSelections[cardKey(r)] ?? "S", new Set([slug]))
+  );
+
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden"
       style={{ borderLeftColor: color, borderLeftWidth: 3 }}>
@@ -244,9 +271,9 @@ function SplitSection({
         </div>
       </div>
 
-      {/* Card rows */}
+      {/* Card rows — sorted by set then card number */}
       <div className="divide-y divide-gray-800/50">
-        {results.map(result => (
+        {sorted.map(result => (
           <CardRow
             key={cardKey(result)}
             result={result}
@@ -271,11 +298,13 @@ function MissingSection({
 }) {
   if (results.length === 0) return null;
 
-  // "Not available at [Store]" when exactly one store is selected
   const singleStore =
     selectedRetailers.size === 1
       ? allRetailers.find(r => selectedRetailers.has(r.slug))?.name
       : null;
+
+  // Sort missing cards by set + card number using whatever options exist
+  const sorted = sortBySetAndNumber(results, (r) => r.options[0] ?? null);
 
   return (
     <div className="bg-gray-900 border border-yellow-900/40 rounded-xl overflow-hidden">
@@ -289,7 +318,7 @@ function MissingSection({
         </span>
       </div>
       <div className="divide-y divide-gray-800/40">
-        {results.map((r, i) => (
+        {sorted.map((r, i) => (
           <div key={i} className="flex items-center justify-between px-4 py-2.5">
             <div>
               <p className="text-sm text-gray-400">{r.input.name}</p>

@@ -157,6 +157,8 @@ export interface DeckCardOption {
   foiling: string | null;   // S=Standard, R=Rainbow Foil, C=Cold Foil, G=Gold Cold Foil
   edition: string | null;   // A=Alpha, F=1st, U=Unlim, N=Normal
   rarity: string | null;    // C, R, S, M, L, F, V, T, P
+  setId: string | null;     // e.g. "WTR", "EVR" — used for sort order
+  cardId: string | null;    // e.g. "WTR001" — numeric suffix used for sort order
 }
 
 // All available options for one card in the deck list

@@ -1356,6 +1356,8 @@ export async function getDeckCardAllPrices(
   foiling: string | null;
   edition: string | null;
   rarity: string | null;
+  set_id: string | null;
+  card_id: string | null;
 }>> {
   try {
     const result = await db.execute({
@@ -1367,6 +1369,8 @@ export async function getDeckCardAllPrices(
           p.foiling,
           p.edition,
           p.rarity,
+          p.set_id,
+          p.card_id,
           rp.retailer_slug,
           ret.name           AS retailer_name,
           rp.shopify_variant_id,
@@ -1397,6 +1401,8 @@ export async function getDeckCardAllPrices(
       foiling: r.foiling as string | null,
       edition: r.edition as string | null,
       rarity: r.rarity as string | null,
+      set_id: r.set_id as string | null,
+      card_id: r.card_id as string | null,
     }));
   } catch (error) {
     console.error("getDeckCardAllPrices failed:", error);

@@ -76,6 +76,8 @@ export async function POST(req: NextRequest) {
           foiling: r.foiling,
           edition: r.edition,
           rarity: r.rarity,
+          setId: r.set_id,
+          cardId: r.card_id,
         })),
       });
     }
