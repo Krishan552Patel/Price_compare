@@ -16,6 +16,36 @@ import type {
 // SEARCH
 // ============================================================
 
+// Lightweight search used by borrowing modal — no retailer join, no stock filter
+export async function searchCardsQuick(
+  query: string,
+  limit: number = 20
+): Promise<SearchResult[]> {
+  const q = query.toLowerCase();
+  const result = await db.execute({
+    sql: `SELECT c.unique_id, c.name, c.type_text,
+               (SELECT p.image_url FROM printings p
+                WHERE p.card_unique_id = c.unique_id AND p.image_url IS NOT NULL
+                ORDER BY p.card_id LIMIT 1) as image_url
+          FROM cards c
+          WHERE LOWER(c.name) LIKE ?
+          ORDER BY
+            CASE WHEN LOWER(c.name) = ? THEN 0
+                 WHEN LOWER(c.name) LIKE ? THEN 1
+                 ELSE 2 END,
+            c.name
+          LIMIT ?`,
+    args: [`%${q}%`, q, `${q}%`, limit],
+  });
+  return result.rows.map((row) => ({
+    unique_id: row.unique_id as string,
+    name: row.name as string,
+    type_text: row.type_text as string | null,
+    image_url: row.image_url as string | null,
+    card_ids: null,
+  }));
+}
+
 export async function searchCards(
   query: string,
   limit: number = 8

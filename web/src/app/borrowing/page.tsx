@@ -42,13 +42,13 @@ function CardSearchModal({
     const t = setTimeout(async () => {
       setLoading(true);
       try {
-        const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+        const r = await fetch(`/api/cards/search?q=${encodeURIComponent(q)}`);
         const data = await r.json();
         setResults(data ?? []);
       } finally {
         setLoading(false);
       }
-    }, 250);
+    }, 150);
     return () => clearTimeout(t);
   }, [query]);
 
