@@ -10,6 +10,10 @@ export default function AccountDashboard() {
   const { data: session } = useSession();
   const [collSummary, setCollSummary] = useState<CollectionSummary | null>(null);
   const [alertSummary, setAlertSummary] = useState<AlertSummary | null>(null);
+  const [collPublic, setCollPublic] = useState(false);
+  const [displayName, setDisplayName] = useState("");
+  const [settingsSaved, setSettingsSaved] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(true);
 
   useEffect(() => {
     fetch("/api/account/collection").then(r => r.json()).then((rows: any[]) => {
@@ -20,7 +24,22 @@ export default function AccountDashboard() {
     fetch("/api/account/alerts").then(r => r.json()).then((rows: any[]) => {
       setAlertSummary({ total: rows.length, active: rows.filter((a: any) => a.active).length });
     });
+    fetch("/api/account/settings").then(r => r.json()).then((s: any) => {
+      setCollPublic(s.collection_public ?? false);
+      setDisplayName(s.display_name ?? "");
+      setSettingsLoading(false);
+    });
   }, []);
+
+  async function saveSettings() {
+    await fetch("/api/account/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collection_public: collPublic, display_name: displayName.trim() || null }),
+    });
+    setSettingsSaved(true);
+    setTimeout(() => setSettingsSaved(false), 2000);
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -75,10 +94,55 @@ export default function AccountDashboard() {
         </Link>
       </div>
 
-      <div className="flex gap-3">
+      {/* Collection visibility settings */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-8">
+        <h2 className="text-base font-semibold text-white mb-4">Collection Settings</h2>
+        {settingsLoading ? (
+          <div className="h-10 bg-gray-800 rounded animate-pulse" />
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium text-white">Public Collection</div>
+                <div className="text-xs text-gray-400 mt-0.5">
+                  Allow other players to browse your collection on the{" "}
+                  <Link href="/players" className="text-blue-400 hover:underline">Players</Link> page.
+                </div>
+              </div>
+              <button
+                onClick={() => setCollPublic((v) => !v)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${collPublic ? "bg-blue-600" : "bg-gray-700"}`}
+              >
+                <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${collPublic ? "translate-x-6" : "translate-x-1"}`} />
+              </button>
+            </div>
+            {collPublic && (
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">Display Name (optional)</label>
+                <input
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder={session?.user?.name ?? "Your name"}
+                  className="w-full max-w-xs bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            )}
+            <button
+              onClick={saveSettings}
+              className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-500 transition"
+            >
+              {settingsSaved ? "Saved ✓" : "Save Settings"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-3">
         <Link href="/cards" className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm transition">Browse Cards</Link>
         <Link href="/trending" className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm transition">Trending</Link>
         <Link href="/watchlist" className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm transition">Watchlist</Link>
+        <Link href="/borrowing" className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm transition">Borrowing</Link>
+        <Link href="/players" className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm transition">Players</Link>
       </div>
     </div>
   );

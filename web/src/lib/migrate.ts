@@ -75,12 +75,49 @@ async function migrate() {
     )
   `;
 
+  // ── Borrowing ─────────────────────────────────────────────────
+  await sql`
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS collection_public BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS display_name TEXT
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS borrow_contacts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS borrow_records (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      contact_id UUID NOT NULL REFERENCES borrow_contacts(id) ON DELETE CASCADE,
+      card_unique_id TEXT NOT NULL,
+      card_name TEXT NOT NULL,
+      image_url TEXT,
+      direction TEXT NOT NULL CHECK (direction IN ('borrowed', 'lent')),
+      qty INTEGER NOT NULL DEFAULT 1 CHECK (qty > 0),
+      borrowed_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      returned_date DATE,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
   // Indexes
   await sql`CREATE INDEX IF NOT EXISTS idx_collection_user ON collection(user_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_alerts_user ON price_alerts(user_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_alerts_active ON price_alerts(active) WHERE active = true`;
   await sql`CREATE INDEX IF NOT EXISTS idx_watchlist_user ON user_watchlist(user_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_reset_tokens_user ON password_reset_tokens(user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_borrow_contacts_user ON borrow_contacts(user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_borrow_records_user ON borrow_records(user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_borrow_records_contact ON borrow_records(contact_id)`;
 
   console.log("✅ Migration complete.");
 }

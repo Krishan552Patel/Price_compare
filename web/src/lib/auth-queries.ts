@@ -364,6 +364,267 @@ export async function deleteAlert(userId: string, id: string): Promise<void> {
   });
 }
 
+// ── Borrowing ──────────────────────────────────────────────────
+
+export interface BorrowContact {
+  id: string;
+  user_id: string;
+  name: string;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface BorrowRecord {
+  id: string;
+  user_id: string;
+  contact_id: string;
+  contact_name: string;
+  card_unique_id: string;
+  card_name: string;
+  image_url: string | null;
+  direction: "borrowed" | "lent";
+  qty: number;
+  borrowed_date: string;
+  returned_date: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface PublicUser {
+  id: string;
+  display_name: string | null;
+  name: string | null;
+}
+
+export interface PublicCollectionRow {
+  printing_unique_id: string;
+  quantity: number;
+  condition: string;
+  card_id: string | null;
+  card_name: string | null;
+  set_name: string | null;
+  set_id: string | null;
+  rarity: string | null;
+  foiling: string | null;
+  edition: string | null;
+  image_url: string | null;
+}
+
+// Contacts CRUD
+
+export async function getBorrowContacts(userId: string): Promise<BorrowContact[]> {
+  const r = await db.execute({
+    sql: `SELECT id, user_id, name, notes,
+               TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at
+          FROM borrow_contacts WHERE user_id = ? ORDER BY name`,
+    args: [userId],
+  });
+  return r.rows.map((row) => ({
+    id: row.id as string,
+    user_id: row.user_id as string,
+    name: row.name as string,
+    notes: row.notes as string | null,
+    created_at: row.created_at as string,
+  }));
+}
+
+export async function createBorrowContact(
+  userId: string,
+  name: string,
+  notes: string | null
+): Promise<BorrowContact> {
+  const r = await db.execute({
+    sql: `INSERT INTO borrow_contacts (user_id, name, notes) VALUES (?, ?, ?) RETURNING id`,
+    args: [userId, name.trim(), notes],
+  });
+  const id = r.rows[0].id as string;
+  const all = await getBorrowContacts(userId);
+  return all.find((c) => c.id === id)!;
+}
+
+export async function updateBorrowContact(
+  userId: string,
+  id: string,
+  name: string,
+  notes: string | null
+): Promise<void> {
+  await db.execute({
+    sql: "UPDATE borrow_contacts SET name = ?, notes = ? WHERE id = ? AND user_id = ?",
+    args: [name.trim(), notes, id, userId],
+  });
+}
+
+export async function deleteBorrowContact(userId: string, id: string): Promise<void> {
+  await db.execute({
+    sql: "DELETE FROM borrow_contacts WHERE id = ? AND user_id = ?",
+    args: [id, userId],
+  });
+}
+
+// Borrow records CRUD
+
+export async function getBorrowRecords(userId: string): Promise<BorrowRecord[]> {
+  const r = await db.execute({
+    sql: `SELECT br.id, br.user_id, br.contact_id, bc.name as contact_name,
+               br.card_unique_id, br.card_name, br.image_url,
+               br.direction, br.qty,
+               TO_CHAR(br.borrowed_date, 'YYYY-MM-DD') as borrowed_date,
+               TO_CHAR(br.returned_date, 'YYYY-MM-DD') as returned_date,
+               br.notes,
+               TO_CHAR(br.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at
+          FROM borrow_records br
+          JOIN borrow_contacts bc ON bc.id = br.contact_id
+          WHERE br.user_id = ?
+          ORDER BY br.returned_date IS NOT NULL, br.borrowed_date DESC`,
+    args: [userId],
+  });
+  return r.rows.map((row) => ({
+    id: row.id as string,
+    user_id: row.user_id as string,
+    contact_id: row.contact_id as string,
+    contact_name: row.contact_name as string,
+    card_unique_id: row.card_unique_id as string,
+    card_name: row.card_name as string,
+    image_url: row.image_url as string | null,
+    direction: row.direction as "borrowed" | "lent",
+    qty: Number(row.qty),
+    borrowed_date: row.borrowed_date as string,
+    returned_date: row.returned_date as string | null,
+    notes: row.notes as string | null,
+    created_at: row.created_at as string,
+  }));
+}
+
+export async function createBorrowRecord(data: {
+  userId: string;
+  contactId: string;
+  cardUniqueId: string;
+  cardName: string;
+  imageUrl: string | null;
+  direction: "borrowed" | "lent";
+  qty: number;
+  borrowedDate: string;
+  notes: string | null;
+}): Promise<BorrowRecord> {
+  const r = await db.execute({
+    sql: `INSERT INTO borrow_records
+            (user_id, contact_id, card_unique_id, card_name, image_url, direction, qty, borrowed_date, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          RETURNING id`,
+    args: [
+      data.userId, data.contactId, data.cardUniqueId, data.cardName,
+      data.imageUrl, data.direction, data.qty, data.borrowedDate, data.notes,
+    ],
+  });
+  const id = r.rows[0].id as string;
+  const all = await getBorrowRecords(data.userId);
+  return all.find((rec) => rec.id === id)!;
+}
+
+export async function markBorrowRecordReturned(
+  userId: string,
+  id: string
+): Promise<void> {
+  await db.execute({
+    sql: `UPDATE borrow_records SET returned_date = CURRENT_DATE
+          WHERE id = ? AND user_id = ? AND returned_date IS NULL`,
+    args: [id, userId],
+  });
+}
+
+export async function deleteBorrowRecord(userId: string, id: string): Promise<void> {
+  await db.execute({
+    sql: "DELETE FROM borrow_records WHERE id = ? AND user_id = ?",
+    args: [id, userId],
+  });
+}
+
+// Public collections / players
+
+export async function getPublicUsers(): Promise<PublicUser[]> {
+  const r = await db.execute({
+    sql: `SELECT id, display_name, name FROM users WHERE collection_public = true ORDER BY COALESCE(display_name, name)`,
+    args: [],
+  });
+  return r.rows.map((row) => ({
+    id: row.id as string,
+    display_name: row.display_name as string | null,
+    name: row.name as string | null,
+  }));
+}
+
+export async function getUserPublicCollection(userId: string): Promise<PublicCollectionRow[]> {
+  const r = await db.execute({
+    sql: `SELECT
+            col.printing_unique_id, col.quantity, col.condition,
+            p.card_id, p.set_id, p.rarity, p.foiling, p.edition, p.image_url,
+            c.name as card_name,
+            s.name as set_name
+          FROM collection col
+          JOIN printings p ON p.unique_id = col.printing_unique_id
+          JOIN cards c ON c.unique_id = p.card_unique_id
+          LEFT JOIN sets s ON s.set_code = p.set_id
+          JOIN users u ON u.id = col.user_id
+          WHERE col.user_id = ? AND u.collection_public = true
+          ORDER BY c.name, p.set_id, col.condition`,
+    args: [userId],
+  });
+  return r.rows.map((row) => ({
+    printing_unique_id: row.printing_unique_id as string,
+    quantity: Number(row.quantity),
+    condition: row.condition as string,
+    card_id: row.card_id as string | null,
+    card_name: row.card_name as string | null,
+    set_name: row.set_name as string | null,
+    set_id: row.set_id as string | null,
+    rarity: row.rarity as string | null,
+    foiling: row.foiling as string | null,
+    edition: row.edition as string | null,
+    image_url: row.image_url as string | null,
+  }));
+}
+
+export async function setCollectionPublic(userId: string, isPublic: boolean): Promise<void> {
+  await db.execute({
+    sql: "UPDATE users SET collection_public = ? WHERE id = ?",
+    args: [isPublic, userId],
+  });
+}
+
+export async function updateDisplayName(userId: string, displayName: string | null): Promise<void> {
+  await db.execute({
+    sql: "UPDATE users SET display_name = ? WHERE id = ?",
+    args: [displayName, userId],
+  });
+}
+
+export async function getPublicUserInfo(userId: string): Promise<PublicUser | null> {
+  const r = await db.execute({
+    sql: "SELECT id, display_name, name FROM users WHERE id = ? AND collection_public = true LIMIT 1",
+    args: [userId],
+  });
+  if (!r.rows.length) return null;
+  const row = r.rows[0];
+  return {
+    id: row.id as string,
+    display_name: row.display_name as string | null,
+    name: row.name as string | null,
+  };
+}
+
+export async function getUserCollectionPublicStatus(userId: string): Promise<{ collection_public: boolean; display_name: string | null }> {
+  const r = await db.execute({
+    sql: "SELECT collection_public, display_name FROM users WHERE id = ? LIMIT 1",
+    args: [userId],
+  });
+  if (!r.rows.length) return { collection_public: false, display_name: null };
+  const row = r.rows[0];
+  return {
+    collection_public: Boolean(row.collection_public),
+    display_name: row.display_name as string | null,
+  };
+}
+
 // ── Alert processing (cron) ────────────────────────────────────
 
 export interface ActiveAlertWithPrice {

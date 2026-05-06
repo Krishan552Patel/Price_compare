@@ -17,6 +17,7 @@ export default function Navbar() {
   const navLinks = [
     { href: "/cards", label: "Cards" },
     { href: "/trending", label: "Trending" },
+    { href: "/players", label: "Players" },
     ...(session?.user
       ? [
           { href: "/watchlist", label: "Watchlist" },
@@ -120,6 +121,13 @@ export default function Navbar() {
                       onClick={() => setUserMenuOpen(false)}
                     >
                       Price Alerts
+                    </Link>
+                    <Link
+                      href="/borrowing"
+                      className="block px-4 py-2.5 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition"
+                      onClick={() => setUserMenuOpen(false)}
+                    >
+                      Borrowing
                     </Link>
                     <div className="border-t border-gray-700" />
                     <button
@@ -235,6 +243,13 @@ export default function Navbar() {
                   onClick={() => setMenuOpen(false)}
                 >
                   Price Alerts
+                </Link>
+                <Link
+                  href="/borrowing"
+                  className="block px-3 py-2 rounded text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800/50 transition"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Borrowing
                 </Link>
                 <button
                   onClick={() => {
