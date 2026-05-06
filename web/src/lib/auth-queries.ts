@@ -548,12 +548,13 @@ export async function searchPublicUsers(query: string): Promise<PublicUser[]> {
   const q = query.trim();
   if (!q) return [];
   const like = `%${q}%`;
+  // Exact UUID match works regardless of collection_public (you got the ID privately)
+  // Name search only returns users who opted into public discovery
   const r = await db.execute({
     sql: `SELECT id, display_name, name FROM users
-          WHERE collection_public = true
-          AND (
+          WHERE (
             id::text = ?
-            OR LOWER(COALESCE(display_name, name, '')) LIKE LOWER(?)
+            OR (collection_public = true AND LOWER(COALESCE(display_name, name, '')) LIKE LOWER(?))
           )
           ORDER BY COALESCE(display_name, name)
           LIMIT 20`,
