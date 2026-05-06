@@ -19,6 +19,7 @@ export interface CollectionRow {
   condition: string;
   acquired_price: number | null;
   notes: string | null;
+  hidden: boolean;
   created_at: string;
   // joined
   card_id: string | null;
@@ -206,7 +207,7 @@ export async function getCollection(userId: string): Promise<CollectionRow[]> {
   const r = await db.execute({
     sql: `SELECT
             col.id, col.user_id, col.printing_unique_id,
-            col.quantity, col.condition, col.acquired_price, col.notes,
+            col.quantity, col.condition, col.acquired_price, col.notes, col.hidden,
             TO_CHAR(col.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
             p.card_id, p.set_id, p.rarity, p.foiling, p.edition, p.image_url,
             c.name as card_name,
@@ -228,6 +229,7 @@ export async function getCollection(userId: string): Promise<CollectionRow[]> {
     condition: row.condition as string,
     acquired_price: row.acquired_price ? Number(row.acquired_price) : null,
     notes: row.notes as string | null,
+    hidden: Boolean(row.hidden),
     created_at: row.created_at as string,
     card_id: row.card_id as string | null,
     card_name: row.card_name as string | null,
@@ -271,14 +273,15 @@ export async function addToCollection(data: {
 export async function updateCollectionEntry(
   userId: string,
   id: string,
-  data: { quantity?: number; condition?: string; acquiredPrice?: number | null; notes?: string | null }
+  data: { quantity?: number; condition?: string; acquiredPrice?: number | null; notes?: string | null; hidden?: boolean }
 ): Promise<void> {
   const sets: string[] = [];
-  const args: (string | number | null)[] = [];
+  const args: (string | number | boolean | null)[] = [];
   if (data.quantity !== undefined) { sets.push("quantity = ?"); args.push(data.quantity); }
   if (data.condition !== undefined) { sets.push("condition = ?"); args.push(data.condition); }
   if ("acquiredPrice" in data) { sets.push("acquired_price = ?"); args.push(data.acquiredPrice ?? null); }
   if ("notes" in data) { sets.push("notes = ?"); args.push(data.notes ?? null); }
+  if (data.hidden !== undefined) { sets.push("hidden = ?"); args.push(data.hidden); }
   if (!sets.length) return;
   args.push(id, userId);
   await db.execute({ sql: `UPDATE collection SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`, args });
@@ -541,10 +544,20 @@ export async function deleteBorrowRecord(userId: string, id: string): Promise<vo
 
 // Public collections / players
 
-export async function getPublicUsers(): Promise<PublicUser[]> {
+export async function searchPublicUsers(query: string): Promise<PublicUser[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const like = `%${q}%`;
   const r = await db.execute({
-    sql: `SELECT id, display_name, name FROM users WHERE collection_public = true ORDER BY COALESCE(display_name, name)`,
-    args: [],
+    sql: `SELECT id, display_name, name FROM users
+          WHERE collection_public = true
+          AND (
+            id::text = ?
+            OR LOWER(COALESCE(display_name, name, '')) LIKE LOWER(?)
+          )
+          ORDER BY COALESCE(display_name, name)
+          LIMIT 20`,
+    args: [q, like],
   });
   return r.rows.map((row) => ({
     id: row.id as string,
@@ -565,7 +578,7 @@ export async function getUserPublicCollection(userId: string): Promise<PublicCol
           JOIN cards c ON c.unique_id = p.card_unique_id
           LEFT JOIN sets s ON s.set_code = p.set_id
           JOIN users u ON u.id = col.user_id
-          WHERE col.user_id = ? AND u.collection_public = true
+          WHERE col.user_id = ? AND u.collection_public = true AND col.hidden = false
           ORDER BY c.name, p.set_id, col.condition`,
     args: [userId],
   });
@@ -623,6 +636,105 @@ export async function getUserCollectionPublicStatus(userId: string): Promise<{ c
     collection_public: Boolean(row.collection_public),
     display_name: row.display_name as string | null,
   };
+}
+
+// ── Friendships ────────────────────────────────────────────────
+
+export interface FriendEntry {
+  friendship_id: string;
+  id: string;
+  display_name: string | null;
+  name: string | null;
+}
+
+export async function getFriendships(userId: string): Promise<{
+  friends: FriendEntry[];
+  pendingSent: FriendEntry[];
+  pendingReceived: FriendEntry[];
+}> {
+  const r = await db.execute({
+    sql: `SELECT f.id as friendship_id, f.status, f.requester_id,
+               u.id as friend_id, u.display_name as friend_display_name, u.name as friend_name
+          FROM friendships f
+          JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
+          WHERE f.requester_id = ? OR f.addressee_id = ?`,
+    args: [userId, userId, userId],
+  });
+
+  const friends: FriendEntry[] = [];
+  const pendingSent: FriendEntry[] = [];
+  const pendingReceived: FriendEntry[] = [];
+
+  for (const row of r.rows) {
+    const entry: FriendEntry = {
+      friendship_id: row.friendship_id as string,
+      id: row.friend_id as string,
+      display_name: row.friend_display_name as string | null,
+      name: row.friend_name as string | null,
+    };
+    if (row.status === "accepted") {
+      friends.push(entry);
+    } else if (row.requester_id === userId) {
+      pendingSent.push(entry);
+    } else {
+      pendingReceived.push(entry);
+    }
+  }
+
+  return { friends, pendingSent, pendingReceived };
+}
+
+export async function getFriendshipStatus(
+  userId: string,
+  otherId: string
+): Promise<{ status: "none" | "pending_sent" | "pending_received" | "accepted"; friendship_id: string | null }> {
+  const r = await db.execute({
+    sql: `SELECT id, status, requester_id FROM friendships
+          WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)
+          LIMIT 1`,
+    args: [userId, otherId, otherId, userId],
+  });
+  if (!r.rows.length) return { status: "none", friendship_id: null };
+  const row = r.rows[0];
+  const friendship_id = row.id as string;
+  if (row.status === "accepted") return { status: "accepted", friendship_id };
+  if (row.requester_id === userId) return { status: "pending_sent", friendship_id };
+  return { status: "pending_received", friendship_id };
+}
+
+export async function areFriends(userId1: string, userId2: string): Promise<boolean> {
+  const r = await db.execute({
+    sql: `SELECT 1 FROM friendships
+          WHERE status = 'accepted'
+          AND ((requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?))
+          LIMIT 1`,
+    args: [userId1, userId2, userId2, userId1],
+  });
+  return r.rows.length > 0;
+}
+
+export async function sendFriendRequest(requesterId: string, addresseeId: string): Promise<void> {
+  await db.execute({
+    sql: `INSERT INTO friendships (requester_id, addressee_id, status)
+          VALUES (?, ?, 'pending')
+          ON CONFLICT (requester_id, addressee_id) DO NOTHING`,
+    args: [requesterId, addresseeId],
+  });
+}
+
+export async function acceptFriendRequest(friendshipId: string, userId: string): Promise<void> {
+  await db.execute({
+    sql: `UPDATE friendships SET status = 'accepted'
+          WHERE id = ? AND addressee_id = ? AND status = 'pending'`,
+    args: [friendshipId, userId],
+  });
+}
+
+export async function deleteFriendship(friendshipId: string, userId: string): Promise<void> {
+  await db.execute({
+    sql: `DELETE FROM friendships WHERE id = ? AND (requester_id = ? OR addressee_id = ?)`,
+    args: [friendshipId, userId, userId],
+  });
 }
 
 // ── Alert processing (cron) ────────────────────────────────────

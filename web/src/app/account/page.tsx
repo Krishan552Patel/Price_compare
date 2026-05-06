@@ -127,6 +127,23 @@ export default function AccountDashboard() {
                 />
               </div>
             )}
+            {collPublic && session?.user?.id && (
+              <div>
+                <div className="text-xs font-medium text-gray-400 mb-1">Your Player ID</div>
+                <div className="flex items-center gap-2">
+                  <code className="text-xs font-mono text-gray-300 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 break-all select-all">
+                    {session.user.id}
+                  </code>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(session.user!.id!)}
+                    className="shrink-0 px-2 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-400 hover:text-white rounded text-xs transition"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-600 mt-1">Share this so friends can find you on the Players page.</p>
+              </div>
+            )}
             <button
               onClick={saveSettings}
               className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-500 transition"

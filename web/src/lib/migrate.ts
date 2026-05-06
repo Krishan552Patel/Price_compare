@@ -109,6 +109,21 @@ async function migrate() {
     )
   `;
 
+  // ── Friends ───────────────────────────────────────────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS friendships (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      requester_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      addressee_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted')),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(requester_id, addressee_id)
+    )
+  `;
+
+  // ── Per-card hiding ────────────────────────────────────────────
+  await sql`ALTER TABLE collection ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT FALSE`;
+
   // Indexes
   await sql`CREATE INDEX IF NOT EXISTS idx_collection_user ON collection(user_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_alerts_user ON price_alerts(user_id)`;
@@ -118,6 +133,8 @@ async function migrate() {
   await sql`CREATE INDEX IF NOT EXISTS idx_borrow_contacts_user ON borrow_contacts(user_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_borrow_records_user ON borrow_records(user_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_borrow_records_contact ON borrow_records(contact_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_friendships_requester ON friendships(requester_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON friendships(addressee_id)`;
 
   console.log("✅ Migration complete.");
 }
