@@ -37,38 +37,6 @@ export async function sendPasswordResetEmail(
   });
 }
 
-// ── Friend Request Notification ────────────────────────────────
-
-export async function sendFriendRequestEmail(
-  to: string,
-  fromName: string,
-): Promise<void> {
-  const playersUrl = `${SITE_URL}/players`;
-  await getResend().emails.send({
-    from: FROM,
-    to,
-    subject: `${fromName} sent you a friend request on FAB Tracker`,
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;color:#e5e7eb;background:#111827;padding:32px;border-radius:12px">
-        <h1 style="color:#ef4444;font-size:24px;margin:0 0 16px">FAB Tracker</h1>
-        <p style="margin:0 0 8px;font-size:16px;color:#f3f4f6">
-          <strong style="color:#fff">${fromName}</strong> wants to add you as a friend so they can view your collection.
-        </p>
-        <p style="margin:0 0 24px;font-size:14px;color:#6b7280">
-          Accept or decline from the Players page.
-        </p>
-        <a href="${playersUrl}"
-           style="display:inline-block;background:#7c3aed;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:bold;margin-bottom:24px">
-          View Friend Request
-        </a>
-        <p style="font-size:12px;color:#4b5563;margin:0">
-          If you don't know this person, you can safely ignore this email.
-        </p>
-      </div>
-    `,
-  });
-}
-
 // ── Daily Price Alert Digest ────────────────────────────────────
 
 export interface AlertDigestItem {

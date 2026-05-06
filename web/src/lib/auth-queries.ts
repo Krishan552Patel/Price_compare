@@ -714,13 +714,15 @@ export async function areFriends(userId1: string, userId2: string): Promise<bool
   return r.rows.length > 0;
 }
 
-export async function sendFriendRequest(requesterId: string, addresseeId: string): Promise<void> {
-  await db.execute({
+export async function sendFriendRequest(requesterId: string, addresseeId: string): Promise<string | null> {
+  const r = await db.execute({
     sql: `INSERT INTO friendships (requester_id, addressee_id, status)
           VALUES (?, ?, 'pending')
-          ON CONFLICT (requester_id, addressee_id) DO NOTHING`,
+          ON CONFLICT (requester_id, addressee_id) DO NOTHING
+          RETURNING id`,
     args: [requesterId, addresseeId],
   });
+  return r.rows.length ? (r.rows[0].id as string) : null;
 }
 
 export async function acceptFriendRequest(friendshipId: string, userId: string): Promise<void> {
@@ -735,6 +737,69 @@ export async function deleteFriendship(friendshipId: string, userId: string): Pr
   await db.execute({
     sql: `DELETE FROM friendships WHERE id = ? AND (requester_id = ? OR addressee_id = ?)`,
     args: [friendshipId, userId, userId],
+  });
+}
+
+// ── Notifications ──────────────────────────────────────────────
+
+export interface NotificationRow {
+  id: string;
+  user_id: string;
+  type: string;
+  from_user_id: string | null;
+  from_user_name: string | null;
+  friendship_id: string | null;
+  read: boolean;
+  created_at: string;
+}
+
+export async function createNotification(data: {
+  userId: string;
+  type: string;
+  fromUserId: string | null;
+  fromUserName: string | null;
+  friendshipId: string | null;
+}): Promise<void> {
+  await db.execute({
+    sql: `INSERT INTO notifications (user_id, type, from_user_id, from_user_name, friendship_id)
+          VALUES (?, ?, ?, ?, ?)`,
+    args: [data.userId, data.type, data.fromUserId, data.fromUserName, data.friendshipId],
+  });
+}
+
+export async function getUnreadNotifications(userId: string): Promise<NotificationRow[]> {
+  const r = await db.execute({
+    sql: `SELECT id, user_id, type, from_user_id, from_user_name, friendship_id, read,
+               TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at
+          FROM notifications
+          WHERE user_id = ? AND read = false
+          ORDER BY created_at DESC
+          LIMIT 20`,
+    args: [userId],
+  });
+  return r.rows.map((row) => ({
+    id: row.id as string,
+    user_id: row.user_id as string,
+    type: row.type as string,
+    from_user_id: row.from_user_id as string | null,
+    from_user_name: row.from_user_name as string | null,
+    friendship_id: row.friendship_id as string | null,
+    read: Boolean(row.read),
+    created_at: row.created_at as string,
+  }));
+}
+
+export async function markNotificationRead(id: string, userId: string): Promise<void> {
+  await db.execute({
+    sql: "UPDATE notifications SET read = true WHERE id = ? AND user_id = ?",
+    args: [id, userId],
+  });
+}
+
+export async function markAllNotificationsRead(userId: string): Promise<void> {
+  await db.execute({
+    sql: "UPDATE notifications SET read = true WHERE user_id = ? AND read = false",
+    args: [userId],
   });
 }
 

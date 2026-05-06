@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getFriendships, sendFriendRequest, getUserById } from "@/lib/auth-queries";
-import { sendFriendRequestEmail } from "@/lib/email";
+import { getFriendships, sendFriendRequest, createNotification } from "@/lib/auth-queries";
 
 export async function GET() {
   const session = await auth();
@@ -18,14 +17,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid userId" }, { status: 400 });
   }
 
-  await sendFriendRequest(session.user.id, userId);
+  const friendshipId = await sendFriendRequest(session.user.id, userId);
 
-  // Fire-and-forget email — don't block the response if it fails
-  getUserById(userId).then((addressee) => {
-    if (!addressee?.email) return;
-    const fromName = session.user?.name ?? "Someone";
-    sendFriendRequestEmail(addressee.email, fromName).catch(() => {});
-  }).catch(() => {});
+  if (friendshipId) {
+    const fromName = session.user.name ?? "Someone";
+    createNotification({
+      userId,
+      type: "friend_request",
+      fromUserId: session.user.id,
+      fromUserName: fromName,
+      friendshipId,
+    }).catch(() => {});
+  }
 
   return NextResponse.json({ ok: true });
 }

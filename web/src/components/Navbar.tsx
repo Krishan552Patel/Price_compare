@@ -1,18 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState, useRef, useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useSession, signOut } from "next-auth/react";
 import SearchBar from "./SearchBar";
+
+interface Notification {
+  id: string;
+  type: string;
+  from_user_id: string | null;
+  from_user_name: string | null;
+  friendship_id: string | null;
+  read: boolean;
+  created_at: string;
+}
 
 export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const pathname = usePathname();
+  const router = useRouter();
   const { data: session } = useSession();
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const bellRef = useRef<HTMLDivElement>(null);
 
   const navLinks = [
     { href: "/cards", label: "Cards" },
@@ -31,17 +45,51 @@ export default function Navbar() {
     return pathname.startsWith(href);
   }
 
-  // Close user dropdown on outside click
+  const fetchNotifications = useCallback(async () => {
+    if (!session?.user?.id) return;
+    try {
+      const res = await fetch("/api/notifications");
+      if (res.ok) setNotifications(await res.json());
+    } catch {}
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
         setUserMenuOpen(false);
+      }
+      if (bellRef.current && !bellRef.current.contains(e.target as Node)) {
+        setBellOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  async function handleFriendAction(notifId: string, friendshipId: string, action: "accept" | "reject") {
+    await fetch(`/api/friends/${friendshipId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    await fetch(`/api/notifications/${notifId}`, { method: "PATCH" });
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+    if (action === "accept") router.refresh();
+  }
+
+  async function markAllRead() {
+    await fetch("/api/notifications", { method: "PATCH" });
+    setNotifications([]);
+    setBellOpen(false);
+  }
+
+  const unreadCount = notifications.length;
   const userInitial = session?.user
     ? (session.user.name || session.user.email || "?")[0].toUpperCase()
     : "?";
@@ -76,9 +124,83 @@ export default function Navbar() {
               </Link>
             ))}
 
+            {/* Bell icon — only when logged in */}
+            {session?.user && (
+              <div className="relative ml-1" ref={bellRef}>
+                <button
+                  onClick={() => setBellOpen(!bellOpen)}
+                  className="relative p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800/50 transition"
+                  aria-label="Notifications"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {bellOpen && (
+                  <div className="absolute right-0 top-full mt-1 w-80 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden z-50">
+                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-700">
+                      <span className="text-sm font-semibold text-white">Notifications</span>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={markAllRead}
+                          className="text-xs text-gray-400 hover:text-white transition"
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+
+                    {notifications.length === 0 ? (
+                      <p className="px-4 py-6 text-sm text-gray-500 text-center">No new notifications</p>
+                    ) : (
+                      <ul className="max-h-80 overflow-y-auto divide-y divide-gray-700/50">
+                        {notifications.map((n) => (
+                          <li key={n.id} className="px-4 py-3">
+                            {n.type === "friend_request" ? (
+                              <div>
+                                <p className="text-sm text-gray-200 mb-2">
+                                  <span className="font-semibold text-white">{n.from_user_name ?? "Someone"}</span>{" "}
+                                  sent you a friend request.
+                                </p>
+                                {n.friendship_id && (
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => handleFriendAction(n.id, n.friendship_id!, "accept")}
+                                      className="flex-1 py-1 text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white rounded transition"
+                                    >
+                                      Accept
+                                    </button>
+                                    <button
+                                      onClick={() => handleFriendAction(n.id, n.friendship_id!, "reject")}
+                                      className="flex-1 py-1 text-xs font-semibold bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition"
+                                    >
+                                      Decline
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-300">{n.type}</p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Auth section */}
             {session?.user ? (
-              <div className="relative ml-2" ref={userMenuRef}>
+              <div className="relative ml-1" ref={userMenuRef}>
                 <button
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
                   className="flex items-center gap-2 px-2.5 py-1.5 rounded text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-800/50 transition"
@@ -154,6 +276,72 @@ export default function Navbar() {
 
           {/* Mobile: search icon + hamburger */}
           <div className="flex items-center gap-2 ml-auto md:hidden">
+            {session?.user && (
+              <div className="relative" ref={bellRef}>
+                <button
+                  className="relative text-gray-300 hover:text-white p-1"
+                  onClick={() => setBellOpen(!bellOpen)}
+                  aria-label="Notifications"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </button>
+                {bellOpen && (
+                  <div className="absolute right-0 top-full mt-1 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden z-50">
+                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-700">
+                      <span className="text-sm font-semibold text-white">Notifications</span>
+                      {unreadCount > 0 && (
+                        <button onClick={markAllRead} className="text-xs text-gray-400 hover:text-white transition">
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+                    {notifications.length === 0 ? (
+                      <p className="px-4 py-6 text-sm text-gray-500 text-center">No new notifications</p>
+                    ) : (
+                      <ul className="max-h-72 overflow-y-auto divide-y divide-gray-700/50">
+                        {notifications.map((n) => (
+                          <li key={n.id} className="px-4 py-3">
+                            {n.type === "friend_request" && n.friendship_id ? (
+                              <div>
+                                <p className="text-sm text-gray-200 mb-2">
+                                  <span className="font-semibold text-white">{n.from_user_name ?? "Someone"}</span>{" "}
+                                  sent you a friend request.
+                                </p>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => handleFriendAction(n.id, n.friendship_id!, "accept")}
+                                    className="flex-1 py-1 text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white rounded transition"
+                                  >
+                                    Accept
+                                  </button>
+                                  <button
+                                    onClick={() => handleFriendAction(n.id, n.friendship_id!, "reject")}
+                                    className="flex-1 py-1 text-xs font-semibold bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition"
+                                  >
+                                    Decline
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-300">{n.type}</p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <button
               className="text-gray-300 hover:text-white p-1"
               onClick={() => {
