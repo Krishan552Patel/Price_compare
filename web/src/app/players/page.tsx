@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import type { PublicUser } from "@/lib/auth-queries";
 
@@ -34,7 +34,6 @@ export default function PlayersPage() {
   const [searched, setSearched] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
   const [tab, setTab] = useState<"friends" | "find">("friends");
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadFriends = useCallback(async () => {
     const res = await fetch("/api/friends").then(r => r.json()).catch(() => null);
@@ -61,23 +60,26 @@ export default function PlayersPage() {
     }));
   }
 
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim()) { setResults([]); setSearched(false); return; }
-    debounceRef.current = setTimeout(async () => {
-      setSearching(true);
-      const players: PublicUser[] = await fetch(`/api/players?q=${encodeURIComponent(query)}`).then(r => r.json()).catch(() => []);
-      setResults(mergeStatus(players, friendsData));
-      setSearched(true);
-      setSearching(false);
-    }, 350);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  async function runSearch(q: string) {
+    const trimmed = q.trim();
+    if (!trimmed) return;
+    setSearching(true);
+    setSearched(false);
+    const players: PublicUser[] = await fetch(`/api/players?q=${encodeURIComponent(trimmed)}`).then(r => r.json()).catch(() => []);
+    setResults(mergeStatus(players, friendsData));
+    setSearched(true);
+    setSearching(false);
+  }
 
-  useEffect(() => {
-    setResults(prev => mergeStatus(prev.map(p => ({ id: p.id, display_name: p.display_name, name: p.name })), friendsData));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [friendsData]);
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") runSearch(query);
+  }
+
+  function clearSearch() {
+    setQuery("");
+    setResults([]);
+    setSearched(false);
+  }
 
   async function withAction(key: string, fn: () => Promise<void>) {
     setActing(key);
@@ -116,7 +118,7 @@ export default function PlayersPage() {
           className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${tab === "friends" ? "bg-gray-800 text-white" : "text-gray-500 hover:text-gray-300"}`}
         >
           Friends
-          {(pendingReceived.length > 0) && (
+          {pendingReceived.length > 0 && (
             <span className="ml-2 inline-flex items-center justify-center w-4 h-4 rounded-full bg-violet-600 text-[10px] text-white font-bold">
               {pendingReceived.length}
             </span>
@@ -137,9 +139,7 @@ export default function PlayersPage() {
           {/* Incoming requests */}
           {pendingReceived.length > 0 && (
             <div>
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
-                Incoming Requests
-              </h2>
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Incoming Requests</h2>
               <div className="space-y-2">
                 {pendingReceived.map(p => {
                   const name = p.display_name ?? p.name ?? "Unknown Player";
@@ -151,18 +151,12 @@ export default function PlayersPage() {
                         <p className="text-[11px] text-gray-500 font-mono truncate">{p.id}</p>
                       </div>
                       <div className="flex gap-2 shrink-0">
-                        <button
-                          onClick={() => respondToRequest(p.friendship_id, "accept")}
-                          disabled={acting === p.friendship_id}
-                          className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition"
-                        >
+                        <button onClick={() => respondToRequest(p.friendship_id, "accept")} disabled={acting === p.friendship_id}
+                          className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition">
                           Accept
                         </button>
-                        <button
-                          onClick={() => respondToRequest(p.friendship_id, "reject")}
-                          disabled={acting === p.friendship_id}
-                          className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-400 rounded-lg text-xs transition"
-                        >
+                        <button onClick={() => respondToRequest(p.friendship_id, "reject")} disabled={acting === p.friendship_id}
+                          className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-400 rounded-lg text-xs transition">
                           Decline
                         </button>
                       </div>
@@ -176,9 +170,7 @@ export default function PlayersPage() {
           {/* Pending sent */}
           {pendingSent.length > 0 && (
             <div>
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
-                Sent Requests
-              </h2>
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Sent Requests</h2>
               <div className="space-y-2">
                 {pendingSent.map(p => {
                   const name = p.display_name ?? p.name ?? "Unknown Player";
@@ -189,11 +181,8 @@ export default function PlayersPage() {
                         <p className="text-sm font-medium text-white truncate">{name}</p>
                         <p className="text-[11px] text-gray-600 mt-0.5">Waiting for response…</p>
                       </div>
-                      <button
-                        onClick={() => cancelOrUnfriend(p.friendship_id)}
-                        disabled={acting === p.friendship_id}
-                        className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-500 hover:text-red-400 rounded-lg text-xs transition"
-                      >
+                      <button onClick={() => cancelOrUnfriend(p.friendship_id)} disabled={acting === p.friendship_id}
+                        className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-500 hover:text-red-400 rounded-lg text-xs transition">
                         Cancel
                       </button>
                     </div>
@@ -206,9 +195,7 @@ export default function PlayersPage() {
           {/* Accepted friends */}
           {friends.length > 0 && (
             <div>
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
-                Friends — {friends.length}
-              </h2>
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Friends — {friends.length}</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {friends.map(p => {
                   const name = p.display_name ?? p.name ?? "Unknown Player";
@@ -222,18 +209,13 @@ export default function PlayersPage() {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Link
-                          href={`/players/${p.id}`}
-                          className="flex-1 text-center py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-xs font-semibold transition"
-                        >
+                        <Link href={`/players/${p.id}`}
+                          className="flex-1 text-center py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-xs font-semibold transition">
                           View Collection
                         </Link>
-                        <button
-                          onClick={() => cancelOrUnfriend(p.friendship_id)}
-                          disabled={acting === p.friendship_id}
+                        <button onClick={() => cancelOrUnfriend(p.friendship_id)} disabled={acting === p.friendship_id}
                           className="px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-500 hover:text-red-400 rounded-lg text-xs transition"
-                          title="Unfriend"
-                        >
+                          title="Unfriend">
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                           </svg>
@@ -256,10 +238,8 @@ export default function PlayersPage() {
               </div>
               <p className="text-white font-semibold mb-1">No friends yet</p>
               <p className="text-gray-500 text-sm mb-5">Search for a player by name or ID to add them.</p>
-              <button
-                onClick={() => setTab("find")}
-                className="px-5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-xl text-sm font-semibold transition"
-              >
+              <button onClick={() => setTab("find")}
+                className="px-5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white rounded-xl text-sm font-semibold transition">
                 Find a Player
               </button>
             </div>
@@ -270,49 +250,51 @@ export default function PlayersPage() {
       {/* ── FIND TAB ── */}
       {tab === "find" && (
         <div className="space-y-5">
-          {/* Search box */}
-          <div className="relative">
-            <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              autoFocus
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search by name or paste a Player ID…"
-              className="w-full bg-gray-900 border border-gray-700 focus:border-violet-600 rounded-xl pl-11 pr-10 py-3.5 text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-violet-600 text-sm transition"
-            />
-            {query && (
-              <button
-                onClick={() => { setQuery(""); setResults([]); setSearched(false); }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
+
+          {/* Search box + button */}
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                value={query}
+                onChange={e => { setQuery(e.target.value); if (searched) { setSearched(false); setResults([]); } }}
+                onKeyDown={handleKeyDown}
+                placeholder="Name or Player ID…"
+                className="w-full bg-gray-900 border border-gray-700 focus:border-violet-600 rounded-xl pl-11 pr-10 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-violet-600 text-sm transition"
+              />
+              {query && (
+                <button onClick={clearSearch}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => runSearch(query)}
+              disabled={!query.trim() || searching}
+              className="px-5 py-3 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-semibold transition"
+            >
+              {searching ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : "Search"}
+            </button>
           </div>
 
-          {/* Hint when empty */}
-          {!query && (
+          {/* Hint */}
+          {!searched && !searching && (
             <div className="flex items-start gap-3 p-4 bg-gray-900 border border-gray-800 rounded-xl">
               <svg className="w-4 h-4 text-violet-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <p className="text-sm text-gray-400">
-                Ask your friend to share their <span className="text-gray-200 font-medium">Player ID</span> from their{" "}
+                Ask your friend to share their <span className="text-gray-200 font-medium">Player ID</span> from{" "}
                 <Link href="/account" className="text-violet-400 hover:underline">Account Settings</Link>.
-                Both of you need <span className="text-gray-200 font-medium">Public Collection</span> enabled.
+                You can also search by display name if they have Public Collection enabled.
               </p>
-            </div>
-          )}
-
-          {/* Spinner */}
-          {searching && (
-            <div className="flex items-center justify-center py-12 gap-2 text-gray-500 text-sm">
-              <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-              Searching…
             </div>
           )}
 
@@ -320,13 +302,14 @@ export default function PlayersPage() {
           {!searching && searched && results.length === 0 && (
             <div className="text-center py-12">
               <p className="text-gray-400 font-medium">No players found</p>
-              <p className="text-gray-600 text-sm mt-1">Check the name or ID, and make sure they have Public Collection on.</p>
+              <p className="text-gray-600 text-sm mt-1">Double-check the name or ID and try again.</p>
             </div>
           )}
 
           {/* Results */}
           {!searching && results.length > 0 && (
             <div className="space-y-2">
+              <p className="text-xs text-gray-600 px-1">{results.length} result{results.length !== 1 ? "s" : ""}</p>
               {results.map(p => {
                 const displayName = p.display_name ?? p.name ?? "Unknown Player";
                 const isActing = acting === p.friendship_id || acting === p.id;
@@ -337,31 +320,20 @@ export default function PlayersPage() {
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-white">{displayName}</p>
                       <p className="text-[10px] font-mono text-gray-600 truncate">{p.id}</p>
-                      {p.status === "accepted" && (
-                        <span className="inline-block mt-0.5 text-[11px] font-medium text-violet-400">Friend</span>
-                      )}
-                      {p.status === "pending_sent" && (
-                        <span className="inline-block mt-0.5 text-[11px] text-gray-500">Request sent</span>
-                      )}
-                      {p.status === "pending_received" && (
-                        <span className="inline-block mt-0.5 text-[11px] text-amber-400">Sent you a request</span>
-                      )}
+                      {p.status === "accepted" && <span className="text-[11px] font-medium text-violet-400">Friend</span>}
+                      {p.status === "pending_sent" && <span className="text-[11px] text-gray-500">Request sent</span>}
+                      {p.status === "pending_received" && <span className="text-[11px] text-amber-400">Sent you a request</span>}
                     </div>
 
                     <div className="flex gap-2 shrink-0">
                       {p.status === "accepted" && (
                         <>
-                          <Link
-                            href={`/players/${p.id}`}
-                            className="px-3 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-xs font-semibold transition"
-                          >
+                          <Link href={`/players/${p.id}`}
+                            className="px-3 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-xs font-semibold transition">
                             Collection
                           </Link>
-                          <button
-                            onClick={() => cancelOrUnfriend(p.friendship_id!)}
-                            disabled={isActing}
-                            className="px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-400 hover:text-red-400 rounded-lg text-xs transition"
-                          >
+                          <button onClick={() => cancelOrUnfriend(p.friendship_id!)} disabled={isActing}
+                            className="px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-400 hover:text-red-400 rounded-lg text-xs transition">
                             Unfriend
                           </button>
                         </>
