@@ -252,6 +252,10 @@ export default function PlayersPage() {
         <div className="space-y-5">
 
           {/* Search box + button */}
+          <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center justify-center w-5 h-5 rounded-full bg-violet-600 text-white text-[10px] font-bold shrink-0">1</div>
+            <p className="text-xs text-gray-400">Enter a name or Player ID, then press <span className="text-gray-200 font-medium">Search</span></p>
+          </div>
           <div className="flex gap-2">
             <div className="relative flex-1">
               <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -308,21 +312,29 @@ export default function PlayersPage() {
 
           {/* Results */}
           {!searching && results.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs text-gray-600 px-1">{results.length} result{results.length !== 1 ? "s" : ""}</p>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center w-5 h-5 rounded-full bg-violet-600 text-white text-[10px] font-bold shrink-0">2</div>
+                <p className="text-xs text-gray-400">Found {results.length} player{results.length !== 1 ? "s" : ""} — click <span className="text-violet-400 font-semibold">Add Friend</span> to send a request</p>
+              </div>
               {results.map(p => {
                 const displayName = p.display_name ?? p.name ?? "Unknown Player";
                 const isActing = acting === p.friendship_id || acting === p.id;
+                const justSent = p.status === "pending_sent" && isActing === false;
 
                 return (
-                  <div key={p.id} className="flex items-center gap-4 bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
+                  <div key={p.id} className={`flex items-center gap-4 bg-gray-900 border rounded-xl px-4 py-3 transition ${p.status === "pending_sent" ? "border-violet-800/50" : "border-gray-800"}`}>
                     <Avatar name={displayName} size="md" />
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-white">{displayName}</p>
                       <p className="text-[10px] font-mono text-gray-600 truncate">{p.id}</p>
-                      {p.status === "accepted" && <span className="text-[11px] font-medium text-violet-400">Friend</span>}
-                      {p.status === "pending_sent" && <span className="text-[11px] text-gray-500">Request sent</span>}
-                      {p.status === "pending_received" && <span className="text-[11px] text-amber-400">Sent you a request</span>}
+                      {p.status === "accepted" && <span className="text-[11px] font-medium text-violet-400">Already friends</span>}
+                      {p.status === "pending_sent" && (
+                        <span className="text-[11px] text-violet-300 font-medium">
+                          ✓ Request sent — they&apos;ll get an email notification
+                        </span>
+                      )}
+                      {p.status === "pending_received" && <span className="text-[11px] text-amber-400">They sent you a request</span>}
                     </div>
 
                     <div className="flex gap-2 shrink-0">
@@ -352,14 +364,19 @@ export default function PlayersPage() {
                       )}
                       {p.status === "pending_sent" && (
                         <button onClick={() => cancelOrUnfriend(p.friendship_id!)} disabled={isActing}
-                          className="px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-500 rounded-lg text-xs transition">
+                          className="px-3 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-500 hover:text-red-400 rounded-lg text-xs transition">
                           Cancel
                         </button>
                       )}
                       {p.status === "none" && (
                         <button onClick={() => sendRequest(p.id)} disabled={isActing}
-                          className="px-3 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition">
-                          {isActing ? "Sending…" : "Add Friend"}
+                          className="px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition shadow-lg shadow-violet-900/40">
+                          {isActing ? (
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              Sending…
+                            </span>
+                          ) : "Add Friend"}
                         </button>
                       )}
                     </div>
